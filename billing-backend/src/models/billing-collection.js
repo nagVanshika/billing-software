@@ -37,4 +37,4 @@ const collectionSchema = new Schema({
     }
 }, { timestamps: true });
 
-module.exports = mongoose.model('BillingCollection', collectionSchema);
+module.exports = mongoose.model('BillingCollection', collectionSchema, 'billing-collection');
