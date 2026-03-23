@@ -1,8 +1,6 @@
 const mongoose = require('mongoose');
-const app = require('../src/app');
-const logger = require('../src/config/logger');
-
-require('dotenv').config();
+const app = require('../billing-backend/src/app');
+const logger = require('../billing-backend/src/config/logger');
 
 let isConnected = false;
 
@@ -29,9 +27,6 @@ const connectDB = async () => {
 
 // Export the Vercel serverless function
 module.exports = async (req, res) => {
-  // Ensure we are connected to the database before processing the request
   await connectDB();
-  
-  // Forward the request to your Express app
   return app(req, res);
 };
