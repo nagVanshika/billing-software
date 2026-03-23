@@ -16,7 +16,7 @@ const booking = new Schema({
   },
   category: {
     type: Schema.Types.ObjectId,
-    ref: "Category"
+    ref: "BillingCategory"
   },
   assign_to: {
     type: Schema.Types.ObjectId,
