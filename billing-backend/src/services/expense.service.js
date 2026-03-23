@@ -1,5 +1,5 @@
-const Expense = require('../models/Expense');
-require('../models/Category'); // Ensure Category model is registered
+const Expense = require('../models/billing-expense');
+require('../models/billing-category'); // Ensure Category model is registered
 
 /**
  * Get all expenses with filters and pagination
@@ -65,7 +65,7 @@ const createExpense = async (expenseData) => {
  * Get all available active categories
  */
 const getCategories = async () => {
-  const Category = require('../models/Category');
+  const Category = require('../models/billing-category');
   return await Category.find({ 
     status: 'active',
     type: { $in: ['expense', 'both'] }
@@ -129,7 +129,7 @@ const getExpenseCategoryStats = async (period = 'total', dateFrom, dateTo) => {
     },
     {
       $lookup: {
-        from: "categories",
+        from: "billingcategories",
         localField: "_id",
         foreignField: "_id",
         as: "categoryDetails"
@@ -163,7 +163,7 @@ const getRegions = async () => {
 
 const bulkUploadExpenses = async (buffer) => {
   const xlsx = require('xlsx');
-  const Category = require('../models/Category');
+  const Category = require('../models/billing-category');
   
   const workbook = xlsx.read(buffer, { type: 'buffer', cellDates: true });
   const sheetName = workbook.SheetNames[0];

@@ -10,8 +10,8 @@ const logger = require('./config/logger');
 // Register Models
 require('./models/User');
 require('./models/Booking');
-require('./models/Expense');
-require('./models/Category');
+require('./models/billing-expense');
+require('./models/billing-category');
 require('./models/city');
 require('./models/Admin');
 

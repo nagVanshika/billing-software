@@ -1,6 +1,6 @@
 const { Booking } = require('../models/Booking');
-const Collection = require('../models/Collection');
-const Category = require('../models/Category');
+const Collection = require('../models/billing-collection');
+const Category = require('../models/billing-category');
 
 /**
  * Helper to get date range based on period
