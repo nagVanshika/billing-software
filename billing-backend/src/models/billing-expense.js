@@ -58,6 +58,6 @@ const expenseSchema = new mongoose.Schema({
     timestamps: true
 });
 
-const BillingExpense = mongoose.model('BillingExpense', expenseSchema);
+const BillingExpense = mongoose.model('BillingExpense', expenseSchema, 'billing-expense');
 
 module.exports = BillingExpense;
