@@ -327,7 +327,7 @@ const Expenses = () => {
                     <td data-label="Bill">
                       {exp.attachment ? (
                         <a 
-                          href={exp.attachment.startsWith('http') ? exp.attachment : `http://localhost:5001${exp.attachment}`} 
+                          href={exp.attachment.startsWith('http') ? exp.attachment : (window.location.hostname === 'localhost' ? `http://localhost:5001${exp.attachment}` : exp.attachment)} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="bill-link"
