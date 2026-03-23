@@ -16,6 +16,8 @@ const categorySchema = new mongoose.Schema({
         enum: ['expense', 'collection', 'both'],
         default: 'expense',
         index: true
+
+
     },
     status: {
         type: String,
