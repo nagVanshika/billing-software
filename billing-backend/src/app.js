@@ -16,6 +16,8 @@ require('./models/city');
 require('./models/Admin');
 
 const app = express();
+app.set('trust proxy', 1); // Trust first proxy for Vercel/Express rate limiting
+
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // Security Middleware
