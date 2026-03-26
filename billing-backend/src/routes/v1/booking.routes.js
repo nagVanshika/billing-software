@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(protect);
 
 router.get('/collections', bookingController.getCollections);
+router.get('/collections/:id', bookingController.getCollectionDetail);
 router.post('/collections', restrictTo('super_admin'), bookingController.createCollection);
 
 module.exports = router;

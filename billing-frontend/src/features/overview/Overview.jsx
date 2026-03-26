@@ -79,12 +79,7 @@ const Overview = () => {
     </div>
   );
 
-  const calculateGrowth = (current, previous) => {
-    if (!previous || previous === 0) return current > 0 ? 100 : 0;
-    return ((current - previous) / previous) * 100;
-  };
 
-  const growthRate = calculateGrowth(stats.totalCollection, stats.previousTotalCollection);
 
   return (
     <div className="overview-container">
@@ -152,14 +147,6 @@ const Overview = () => {
       <div className="stats-grid">
         <StatCard title="Total Revenue" value={`₹${stats.totalCollection.toLocaleString('en-IN')}`} icon={<DollarSign size={20} />} color="#1B4E9B" isLoading={loading} />
         <StatCard title="Total Bookings" value={stats.count.toLocaleString()} icon={<Calendar size={20} />} color="#1B4E9B" isLoading={loading} />
-        <StatCard 
-          title="Growth Rate" 
-          value={`${growthRate >= 0 ? '+' : ''}${growthRate.toFixed(1)}%`} 
-          icon={<TrendingUp size={20} />} 
-          color={growthRate >= 0 ? '#10B981' : '#EF4444'} 
-          trendValue={growthRate}
-          isLoading={loading}
-        />
       </div>
 
       <div className="charts-grid">

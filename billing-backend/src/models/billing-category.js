@@ -27,6 +27,6 @@ const categorySchema = new mongoose.Schema({
     timestamps: true
 });
 
-const BillingCategory = mongoose.model('BillingCategory', categorySchema);
+const BillingCategory = mongoose.model('BillingCategory', categorySchema, 'billing-category');
 
 module.exports = BillingCategory;
