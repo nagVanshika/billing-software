@@ -1,7 +1,7 @@
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
-const Collection = require('../models/Collection');
-const Category = require('../models/Category');
+const Collection = require('../models/billing-collection');
+const Category = require('../models/billing-category');
 
 // Simple in-memory cache
 let externalBookingsCache = {
@@ -37,7 +37,7 @@ const getSystemToken = () => {
  */
 const fetchExternalBookings = async (params = {}) => {
   const now = Date.now();
-  
+
   // Use cache if available and not expired (only for full stats fetch)
   if (params.allPages && (now - externalBookingsCache.timestamp < CACHE_DURATION)) {
     return externalBookingsCache.data;
@@ -46,7 +46,7 @@ const fetchExternalBookings = async (params = {}) => {
   try {
     const token = getSystemToken();
     const url = process.env.BOOKING_API_URL || 'https://app.carmaacarcare.com/api/admin/v1/get-bookings';
-    
+
     if (!params.status) {
       params.status = COMPLETED_STATUSES.join(',');
     }
@@ -55,7 +55,7 @@ const fetchExternalBookings = async (params = {}) => {
       const resp = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` },
         params: { ...params, page: pageNum, limit: 100 },
-        timeout: 15000 
+        timeout: 15000
       });
       return resp.data?.result || {};
     };
@@ -72,7 +72,7 @@ const fetchExternalBookings = async (params = {}) => {
       results.forEach(r => {
         if (r.bookings) bookings = bookings.concat(r.bookings);
       });
-      
+
       // Update cache
       externalBookingsCache = {
         data: bookings,
@@ -96,7 +96,7 @@ const fetchExternalBookings = async (params = {}) => {
  */
 const fetchExternalRegions = async () => {
   const now = Date.now();
-  
+
   if (now - externalRegionsCache.timestamp < REGION_CACHE_DURATION && externalRegionsCache.data.length > 0) {
     return externalRegionsCache.data;
   }
@@ -104,7 +104,7 @@ const fetchExternalRegions = async () => {
   try {
     const token = getSystemToken();
     const url = 'https://app.carmaacarcare.com/api/admin/v1/get-city-data';
-    
+
     const resp = await axios.get(url, {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 10000
@@ -144,7 +144,7 @@ const getDateRange = (period, dateFrom, dateTo) => {
 
   const now = new Date();
   const today = now.toISOString().split('T')[0];
-  
+
   switch (period) {
     case 'today':
       return { $gte: today };
@@ -170,7 +170,7 @@ const getDateRange = (period, dateFrom, dateTo) => {
 const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedExtBookings = null) => {
   const statuses = COMPLETED_STATUSES;
   const dateFilter = getDateRange(period, dateFrom, dateTo);
-  
+
   const cMatch = { status: { $in: statuses } };
   if (dateFilter) cMatch.date = dateFilter;
 
@@ -180,7 +180,7 @@ const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedEx
   ]);
 
   const extBookings = providedExtBookings || await fetchExternalBookings({ allPages: true, order: 'desc' });
-  
+
   const from = dateFrom || (dateFilter?.$gte);
   const to = dateTo || (dateFilter?.$lte);
 
@@ -196,7 +196,7 @@ const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedEx
   const extCount = filteredExt.length;
 
   const currentTotal = (cStats?.total || 0) + extTotal;
-  
+
   let previousTotal = 0;
   let prevDateFrom, prevDateTo;
 
@@ -237,7 +237,7 @@ const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedEx
   return {
     totalCollection: currentTotal,
     previousTotalCollection: previousTotal,
-    count: extCount 
+    count: extCount
   };
 };
 
@@ -247,7 +247,7 @@ const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedEx
 const getRevenueTrend = async (period = 'total', dateFrom, dateTo, providedExtBookings = null) => {
   const statuses = COMPLETED_STATUSES;
   const dateFilter = getDateRange(period, dateFrom, dateTo);
-  
+
   const isDaily = ['today', 'weekly', 'monthly'].includes(period);
 
   const cMatch = { status: { $in: statuses } };
@@ -316,7 +316,7 @@ const getRevenueTrend = async (period = 'total', dateFrom, dateTo, providedExtBo
 const getRegionWiseRevenue = async (period = 'total', dateFrom, dateTo, providedExtBookings = null) => {
   const statuses = COMPLETED_STATUSES;
   const dateFilter = getDateRange(period, dateFrom, dateTo);
-  
+
   const cMatch = { status: { $in: statuses } };
   if (dateFilter) cMatch.date = dateFilter;
 
@@ -327,7 +327,7 @@ const getRegionWiseRevenue = async (period = 'total', dateFrom, dateTo, provided
 
   const extBookings = providedExtBookings || await fetchExternalBookings({ allPages: true, order: 'desc' });
   const regions = {};
-  
+
   const from = dateFrom || (dateFilter?.$gte);
   const to = dateTo || (dateFilter?.$lte);
 
@@ -414,17 +414,17 @@ const getCollectionFilters = async () => {
 
   let bookingsCat = await Category.findOne({ name: 'Bookings' });
   if (!bookingsCat) {
-    bookingsCat = await Category.create({ 
-      name: 'Bookings', 
+    bookingsCat = await Category.create({
+      name: 'Bookings',
       type: 'collection',
       status: 'active',
       description: 'Default category for system bookings'
     });
   }
 
-  const categories = await Category.find({ 
-    status: 'active', 
-    type: { $in: ['collection', 'both'] } 
+  const categories = await Category.find({
+    status: 'active',
+    type: { $in: ['collection', 'both'] }
   }).select('name').sort({ name: 1 }).lean();
 
   return { regions, categories };
@@ -485,7 +485,7 @@ const getBookingDetail = async (id) => {
         booking_type: b.booking_type || 'system'
       };
     }
-  } catch (error) {}
+  } catch (error) { }
 
   return null;
 };

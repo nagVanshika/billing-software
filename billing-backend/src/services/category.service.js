@@ -1,4 +1,4 @@
-const Category = require('../models/Category');
+const Category = require('../models/billing-category');
 
 /**
  * Get all categories (with optional status filter)

@@ -8,8 +8,11 @@ const errorHandler = require('./middleware/errorHandler');
 const logger = require('./config/logger');
 
 // Register Models
-require('./models/Expense');
-require('./models/Category');
+require('./models/User');
+require('./models/Booking');
+require('./models/billing-expense');
+require('./models/billing-category');
+require('./models/city');
 require('./models/Admin');
 
 const app = express();
