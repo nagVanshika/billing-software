@@ -91,3 +91,24 @@ exports.seedAdmins = async (req, res, next) => {
     next(err);
   }
 };
+
+/**
+ * Generate a system token for external API calls from the frontend
+ */
+exports.getSystemToken = async (req, res, next) => {
+  try {
+    const token = jwt.sign(
+      { type: 'system', name: 'BillingFrontend' },
+      process.env.EXTERNAL_API_SECRET || process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    res.status(200).json({
+      status: 'success',
+      token
+    });
+  } catch (err) {
+    logger.error('System token generation error:', err);
+    next(err);
+  }
+};
