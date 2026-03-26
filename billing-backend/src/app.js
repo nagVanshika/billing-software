@@ -8,10 +8,8 @@ const errorHandler = require('./middleware/errorHandler');
 const logger = require('./config/logger');
 
 // Register Models
-require('./models/User');
 require('./models/Expense');
 require('./models/Category');
-require('./models/city');
 require('./models/Admin');
 
 const app = express();

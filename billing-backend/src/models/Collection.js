@@ -33,7 +33,7 @@ const collectionSchema = new Schema({
   notes: String,
   created_by: {
     type: Schema.Types.ObjectId,
-    ref: 'User'
+    ref: 'Admin'
   }
 }, { timestamps: true });
 
