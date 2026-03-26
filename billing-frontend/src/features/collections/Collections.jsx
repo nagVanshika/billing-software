@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { DollarSign, X, Plus } from 'lucide-react';
+import { DollarSign, X, Plus, User, MapPin, Calendar, Clock, CreditCard, Car, ChevronRight, CheckCircle, Info } from 'lucide-react';
 import bookingService from '../../services/bookingService';
 import expenseService from '../../services/expenseService';
 import { useAuth } from '../../context/AuthContext';
@@ -28,6 +28,11 @@ const Collections = () => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  // Detail Modal State
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  
   // Body scroll lock
   useEffect(() => {
     const lock = () => {
@@ -41,11 +46,11 @@ const Collections = () => {
       document.body.classList.remove('modal-open');
     };
 
-    if (isModalOpen) lock();
+    if (isModalOpen || isDetailModalOpen) lock();
     else unlock();
-
+ 
     return unlock;
-  }, [isModalOpen]);
+  }, [isModalOpen, isDetailModalOpen]);
 
   const observer = useRef();
   const lastBookingElementRef = useCallback(node => {
@@ -138,6 +143,26 @@ const Collections = () => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+ 
+  const handleRowClick = async (booking) => {
+    try {
+      setDetailLoading(true);
+      setIsDetailModalOpen(true);
+      const response = await bookingService.getBookingDetail(booking._id, booking.source);
+      if (response.success) {
+        setSelectedBooking(response.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch booking details:', error);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+ 
+  const closeDetailModal = () => {
+    setIsDetailModalOpen(false);
+    setSelectedBooking(null);
   };
 
   const hasActiveFilters = appliedFilters.dateFrom || appliedFilters.dateTo || appliedFilters.region || appliedFilters.category;
@@ -248,7 +273,12 @@ const Collections = () => {
               {bookings.map((booking, index) => {
                 const isLastElement = bookings.length === index + 1;
                 return (
-                  <tr key={booking._id} ref={isLastElement ? lastBookingElementRef : null}>
+                  <tr 
+                    key={booking._id} 
+                    ref={isLastElement ? lastBookingElementRef : null}
+                    onClick={() => handleRowClick(booking)}
+                    className="booking-row"
+                  >
                     <td className="customer-name" data-label="Reason">{booking.customerName}</td>
                     <td data-label="Category"><span className="category-tag">{booking.category?.name || '—'}</span></td>
                     <td data-label="Type">{booking.booking_type}</td>
@@ -356,6 +386,185 @@ const Collections = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Booking Detail Modal ── */}
+      {isDetailModalOpen && (
+        <div className="modal-overlay" onClick={closeDetailModal}>
+          <div className="modal-content detail-modal premium-detail" onClick={e => e.stopPropagation()}>
+            <div className="modal-header-premium">
+              <div className="header-main">
+                <div className="header-text">
+                  <span className="booking-type-tag">{selectedBooking?.booking_type || 'System'} Booking</span>
+                  <h2>Transaction Details</h2>
+                  <span className="premium-id-tag">ID: {selectedBooking?._id || '...'}</span>
+                </div>
+                {selectedBooking && (
+                  <div className={`status-pill-large ${(selectedBooking.status || 'pending').replace(' ', '-').toLowerCase()}`}>
+                    <CheckCircle size={16} />
+                    {selectedBooking.status}
+                  </div>
+                )}
+              </div>
+              <button className="btn-close-premium" onClick={closeDetailModal}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="detail-body-premium">
+              {detailLoading ? (
+                <div className="detail-loading-premium">
+                  <div className="loader-ring"></div>
+                  <p>Synchronizing with system...</p>
+                </div>
+              ) : selectedBooking ? (
+                <div className="premium-grid-layout">
+                  {/* ── Left Column: Basic Info & Vehicle ── */}
+                  <div className="premium-col">
+                    <div className="premium-card">
+                      <div className="card-header-icon">
+                        <User size={18} />
+                        <h4>Customer Details</h4>
+                      </div>
+                      <div className="card-content">
+                        <div className="info-row">
+                          <label>Full Name</label>
+                          <p className="highlight">{selectedBooking.customerName || selectedBooking.customer_id?.name || 'N/A'}</p>
+                        </div>
+                        <div className="info-row">
+                          <label>Contact Number</label>
+                          <p>{selectedBooking.customer_id?.phone || selectedBooking.phone || 'N/A'}</p>
+                        </div>
+                        {selectedBooking.customer_id?.email && (
+                          <div className="info-row">
+                            <label>Email Address</label>
+                            <p>{selectedBooking.customer_id.email}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="premium-card">
+                      <div className="card-header-icon">
+                        <Calendar size={18} />
+                        <h4>Schedule & Location</h4>
+                      </div>
+                      <div className="card-content">
+                        <div className="info-row">
+                          <label>Service Date</label>
+                          <div className="icon-text">
+                            <Calendar size={14} className="small-icon" />
+                            <p>{selectedBooking.date}</p>
+                          </div>
+                        </div>
+                        {selectedBooking.time && (
+                          <div className="info-row">
+                            <label>Arrival Time</label>
+                            <div className="icon-text">
+                              <Clock size={14} className="small-icon" />
+                              <p>{selectedBooking.time}</p>
+                            </div>
+                          </div>
+                        )}
+                        <div className="info-row">
+                          <label>Region/Station</label>
+                          <div className="icon-text">
+                            <MapPin size={14} className="small-icon" />
+                            <p>{selectedBooking.address?.region || selectedBooking.region || 'N/A'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── Right Column: Services & Payment ── */}
+                  <div className="premium-col">
+                    <div className="premium-card highlight-border">
+                      <div className="card-header-icon">
+                        <Car size={18} />
+                        <h4>Services & Vehicles</h4>
+                      </div>
+                      <div className="card-content">
+                        {selectedBooking.bill_details?.booked_services?.length > 0 ? (
+                          <div className="booked-services-list">
+                            {selectedBooking.bill_details.booked_services.map((item, idx) => (
+                              <div key={idx} className="booked-service-card">
+                                <div className="vehicle-mini-header">
+                                  {item.vehicle?.carImage && (
+                                    <img src={item.vehicle.carImage} alt="Car" className="mini-car-img" />
+                                  )}
+                                  <div className="v-data">
+                                    <h5>{item.vehicle?.carName || item.service_name}</h5>
+                                    <span>#{item.user_vehicle_id?.slice(-6).toUpperCase()}</span>
+                                  </div>
+                                </div>
+                                <div className="nested-tags">
+                                  {item.services?.map((s, sIdx) => (
+                                    <span key={sIdx} className="nested-tag">{s.id?.name || s.name}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : selectedBooking.car_id ? (
+                          <div className="simple-vehicle-info">
+                            <div className="v-row">
+                              <label>Model</label>
+                              <p>{selectedBooking.car_id.make} {selectedBooking.car_id.model}</p>
+                            </div>
+                            <div className="v-row">
+                              <label>Registration</label>
+                              <p className="reg-tag">{selectedBooking.car_id.reg_number}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="empty-text">No detailed service breakdown available.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="premium-card payment-card">
+                      <div className="card-header-icon">
+                        <CreditCard size={18} />
+                        <h4>Payment Summary</h4>
+                      </div>
+                      <div className="card-content payment-details">
+                        <div className="payment-row">
+                          <span>Subtotal</span>
+                          <span>₹{selectedBooking.payment?.price?.toLocaleString('en-IN') || 0}</span>
+                        </div>
+                        {selectedBooking.payment?.discount > 0 && (
+                          <div className="payment-row discount">
+                            <span>Promotional Discount</span>
+                            <span>- ₹{selectedBooking.payment.discount.toLocaleString('en-IN')}</span>
+                          </div>
+                        )}
+                        <div className="payment-divider"></div>
+                        <div className="payment-row final">
+                          <div className="total-label">
+                            <span className="l-text">Amount Settled</span>
+                            <span className="l-sub">via {selectedBooking.payment?.method || 'Method'}</span>
+                          </div>
+                          <span className="total-val">₹{selectedBooking.amount?.toLocaleString('en-IN') || selectedBooking.payment?.price?.toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="detail-error-premium">
+                  <Info size={48} className="err-icon" />
+                  <h3>Data Unavailable</h3>
+                  <p>We couldn't synchronize the details for this record. Please try again or contact support.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer-premium">
+              <button className="btn-secondary-premium" onClick={closeDetailModal}>Close Review</button>
+            </div>
           </div>
         </div>
       )}

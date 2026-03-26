@@ -105,6 +105,42 @@ const bookingService = {
   createCollection: async (collectionData) => {
     return api.post('/bookings/collections', collectionData);
   },
+
+  getBookingDetail: async (id, source = 'external-booking') => {
+    try {
+      if (source === 'collection') {
+        return api.get(`/bookings/collections/${id}`);
+      }
+
+      // Fetch system token from our backend
+      const tokenResponse = await api.get('/auth/system-token');
+      const systemToken = tokenResponse.token;
+
+      // Fetch from external API directly
+      const response = await axios.get('https://app.carmaacarcare.com/api/admin/v1/get-booking-by-id', {
+        headers: { Authorization: `Bearer ${systemToken}` },
+        params: { bookingId: id },
+        timeout: 10000
+      });
+
+      if (response.data?.status || response.data?.success) {
+        const b = response.data.result;
+        return {
+          success: true,
+          data: {
+            ...b,
+            amount: parseFloat(b.payment?.price || 0),
+            source: 'external-booking',
+            booking_type: b.booking_type || 'system'
+          }
+        };
+      }
+      return { success: false, message: 'Booking not found' };
+    } catch (error) {
+      console.error('getBookingDetail failed:', error);
+      throw error;
+    }
+  },
 };
 
 export default bookingService;
