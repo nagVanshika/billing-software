@@ -1,6 +1,89 @@
-const { Booking } = require('../models/Booking');
+const axios = require('axios');
+const jwt = require('jsonwebtoken');
 const Collection = require('../models/Collection');
 const Category = require('../models/Category');
+
+// Simple in-memory cache
+let externalBookingsCache = {
+  data: [],
+  totalItems: 0,
+  timestamp: 0
+};
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+const COMPLETED_STATUSES = ['complete', 'completed', 'feedback done', 'Complete', 'Completed', 'Feedback Done'];
+
+/**
+ * Helper to get a system token for external API calls
+ */
+const getSystemToken = () => {
+  return jwt.sign(
+    { type: 'system', name: 'BillingBackend' },
+    process.env.EXTERNAL_API_SECRET || process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: '1h' }
+  );
+};
+
+/**
+ * Helper to fetch data from the external booking API.
+ * Supports fetching multiple pages if needed for stats.
+ */
+const fetchExternalBookings = async (params = {}) => {
+  const now = Date.now();
+  
+  // Use cache if available and not expired (only for full stats fetch)
+  if (params.allPages && (now - externalBookingsCache.timestamp < CACHE_DURATION)) {
+    return externalBookingsCache.data;
+  }
+
+  try {
+    const token = getSystemToken();
+    const url = process.env.BOOKING_API_URL || 'https://app.carmaacarcare.com/api/admin/v1/get-bookings';
+    
+    if (!params.status) {
+      params.status = COMPLETED_STATUSES.join(',');
+    }
+
+    const fetchPage = async (pageNum) => {
+      const resp = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { ...params, page: pageNum, limit: 100 },
+        timeout: 15000 // Increased timeout
+      });
+      return resp.data?.result || {};
+    };
+
+    const firstResult = await fetchPage(params.page || 1);
+    let bookings = firstResult.bookings || [];
+
+    if (params.allPages && firstResult.totalPages > 1) {
+      const promises = [];
+      for (let p = 2; p <= firstResult.totalPages; p++) {
+        promises.push(fetchPage(p));
+      }
+      const results = await Promise.all(promises);
+      results.forEach(r => {
+        if (r.bookings) bookings = bookings.concat(r.bookings);
+      });
+      
+      // Update cache
+      externalBookingsCache = {
+        data: bookings,
+        totalItems: firstResult.totalItems,
+        timestamp: Date.now()
+      };
+    }
+
+    return bookings;
+  } catch (error) {
+    console.error('External API fetch failed:', error.message);
+    // Return stale cache on failure if available
+    if (params.allPages && externalBookingsCache.data.length > 0) {
+      return externalBookingsCache.data;
+    }
+    return [];
+  }
+};
 
 /**
  * Helper to get date range based on period
@@ -37,238 +120,194 @@ const getDateRange = (period, dateFrom, dateTo) => {
 
 /**
  * Get total collection from bookings with specific statuses
- * Statuses: complete, completed, feedback done
  */
-const getCollectionStats = async (period = 'total', dateFrom, dateTo) => {
-  const statuses = ['complete', 'completed', 'feedback done', 'Complete', 'Completed', 'Feedback Done'];
+const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedExtBookings = null) => {
+  const statuses = COMPLETED_STATUSES;
   const dateFilter = getDateRange(period, dateFrom, dateTo);
   
-  const matchQuery = { status: { $in: statuses } };
-  if (dateFilter) matchQuery.date = dateFilter;
+  // Local Collections
+  const cMatch = { status: { $in: statuses } };
+  if (dateFilter) cMatch.date = dateFilter;
 
-  // Helper for actual fetch
-  const fetchTotal = async (query) => {
-    const [bStats, cStats] = await Promise.all([
-      Booking.aggregate([
-        { $match: query },
-        { $group: { _id: null, total: { $sum: { $convert: { input: "$payment.price", to: "double", onError: 0, onNull: 0 } } }, count: { $sum: 1 } } }
-      ]),
-      Collection.aggregate([
-        { $match: query },
-        { $group: { _id: null, total: { $sum: { $convert: { input: "$amount", to: "double", onError: 0, onNull: 0 } } } } }
-      ])
-    ]);
-    return (bStats[0]?.total || 0) + (cStats[0]?.total || 0);
-  };
+  const [cStats] = await Collection.aggregate([
+    { $match: cMatch },
+    { $group: { _id: null, total: { $sum: { $convert: { input: "$amount", to: "double", onError: 0, onNull: 0 } } } } }
+  ]);
 
-  const currentTotal = await fetchTotal(matchQuery);
-  const totalCount = await Booking.countDocuments(matchQuery);
+  // Use provided bookings or fetch (cached)
+  const extBookings = providedExtBookings || await fetchExternalBookings({ allPages: true, order: 'desc' });
+  
+  const from = dateFrom || (dateFilter?.$gte);
+  const to = dateTo || (dateFilter?.$lte);
 
-  // Calculate previous period total
+  const filteredExt = extBookings.filter(b => {
+    const isStatusMatch = statuses.includes(b.status);
+    let isDateMatch = true;
+    if (from && b.date < from) isDateMatch = false;
+    if (to && b.date > to) isDateMatch = false;
+    return isStatusMatch && isDateMatch;
+  });
+
+  const extTotal = filteredExt.reduce((sum, b) => sum + parseFloat(b.payment?.price || 0), 0);
+  const extCount = filteredExt.length;
+
+  const currentTotal = (cStats?.total || 0) + extTotal;
+  
+  // Previous Period
   let previousTotal = 0;
-  let prevFilter = null;
+  let prevDateFrom, prevDateTo;
 
   if (period === 'today') {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    prevFilter = { $eq: yesterday.toISOString().split('T')[0] };
+    prevDateFrom = prevDateTo = yesterday.toISOString().split('T')[0];
   } else if (period === 'weekly') {
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const twoWeeksAgo = new Date();
-    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-    prevFilter = { 
-      $gte: twoWeeksAgo.toISOString().split('T')[0], 
-      $lt: weekAgo.toISOString().split('T')[0] 
-    };
+    const start = new Date(); start.setDate(start.getDate() - 14);
+    const end = new Date(); end.setDate(end.getDate() - 7);
+    prevDateFrom = start.toISOString().split('T')[0];
+    prevDateTo = end.toISOString().split('T')[0];
   } else if (period === 'monthly') {
-    const monthAgo = new Date();
-    monthAgo.setDate(monthAgo.getDate() - 30);
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setDate(twoMonthsAgo.getDate() - 60);
-    prevFilter = { 
-      $gte: twoMonthsAgo.toISOString().split('T')[0], 
-      $lt: monthAgo.toISOString().split('T')[0] 
-    };
-  } else if (period === 'custom' && dateFrom && dateTo) {
-    const start = new Date(dateFrom);
-    const end = new Date(dateTo);
-    const diff = end - start;
-    const prevEnd = new Date(start.getTime() - 1);
-    const prevStart = new Date(start.getTime() - diff);
-    prevFilter = { 
-      $gte: prevStart.toISOString().split('T')[0], 
-      $lte: prevEnd.toISOString().split('T')[0] 
-    };
+    const start = new Date(); start.setDate(start.getDate() - 60);
+    const end = new Date(); end.setDate(end.getDate() - 30);
+    prevDateFrom = start.toISOString().split('T')[0];
+    prevDateTo = end.toISOString().split('T')[0];
   }
 
-  if (prevFilter) {
-    previousTotal = await fetchTotal({ status: { $in: statuses }, date: prevFilter });
+  if (prevDateFrom) {
+    const prevMatch = { status: { $in: statuses }, date: prevDateFrom === prevDateTo ? prevDateFrom : { $gte: prevDateFrom, $lte: prevDateTo } };
+    const [prevC] = await Collection.aggregate([
+      { $match: prevMatch },
+      { $group: { _id: null, total: { $sum: { $convert: { input: "$amount", to: "double", onError: 0, onNull: 0 } } } } }
+    ]);
+    const prevExtTotal = extBookings
+      .filter(b => {
+        const isStatusMatch = statuses.includes(b.status);
+        let isDateMatch = true;
+        if (prevDateFrom && b.date < prevDateFrom) isDateMatch = false;
+        if (prevDateTo && b.date > prevDateTo) isDateMatch = false;
+        return isStatusMatch && isDateMatch;
+      })
+      .reduce((sum, b) => sum + parseFloat(b.payment?.price || 0), 0);
+    previousTotal = (prevC?.total || 0) + prevExtTotal;
   }
 
   return {
     totalCollection: currentTotal,
     previousTotalCollection: previousTotal,
-    count: totalCount
+    count: extCount 
   };
 };
 
 /**
- * Get revenue trend data based on period
+ * Get revenue trend data
  */
-const getRevenueTrend = async (period = 'total', dateFrom, dateTo) => {
-  const statuses = ['complete', 'completed', 'feedback done', 'Complete', 'Completed', 'Feedback Done'];
+const getRevenueTrend = async (period = 'total', dateFrom, dateTo, providedExtBookings = null) => {
+  const statuses = COMPLETED_STATUSES;
   const dateFilter = getDateRange(period, dateFrom, dateTo);
-  const matchQuery = { status: { $in: statuses } };
-  if (dateFilter) matchQuery.date = dateFilter;
+  
+  // Optimized: Use daily grouping for smaller ranges, monthly for large ones
+  const isDaily = ['today', 'weekly', 'monthly'].includes(period);
 
-  if (period === 'today') {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    
-    const [bStats, cStats] = await Promise.all([
-      Booking.aggregate([
-        { $match: { status: { $in: statuses }, createdAt: { $gte: todayStart } } },
-        {
-          $group: {
-            _id: { $substr: [{ $dateToString: { date: "$createdAt", timezone: "UTC" } }, 11, 2] },
-            revenue: { $sum: { $convert: { input: "$payment.price", to: "double", onError: 0, onNull: 0 } } }
-          }
-        }
-      ]),
-      Collection.aggregate([
-        { $match: { status: { $in: statuses }, createdAt: { $gte: todayStart } } },
-        {
-          $group: {
-            _id: { $substr: [{ $dateToString: { date: "$createdAt", timezone: "UTC" } }, 11, 2] },
-            revenue: { $sum: "$amount" }
-          }
-        }
-      ])
-    ]);
+  // Local Collections
+  const cMatch = { status: { $in: statuses } };
+  if (dateFilter) cMatch.date = dateFilter;
 
-    const combined = [...bStats, ...cStats];
-    const hourly = {};
-    combined.forEach(item => {
-      hourly[item._id] = (hourly[item._id] || 0) + item.revenue;
-    });
-
-    return Object.keys(hourly).sort().map(hour => ({
-      month: `${hour}:00`,
-      revenue: hourly[hour]
-    }));
-  }
-
-  if (period === 'weekly' || period === 'monthly') {
-    const [bStats, cStats] = await Promise.all([
-      Booking.aggregate([
-        { $match: matchQuery },
-        {
-          $group: {
-            _id: "$date",
-            revenue: { $sum: { $convert: { input: "$payment.price", to: "double", onError: 0, onNull: 0 } } }
-          }
-        }
-      ]),
-      Collection.aggregate([
-        { $match: matchQuery },
-        {
-          $group: {
-            _id: "$date",
-            revenue: { $sum: "$amount" }
-          }
-        }
-      ])
-    ]);
-
-    const combined = [...bStats, ...cStats];
-    const daily = {};
-    combined.forEach(item => {
-      daily[item._id] = (daily[item._id] || 0) + item.revenue;
-    });
-
-    return Object.keys(daily).sort().map(date => ({
-      month: date,
-      revenue: daily[date]
-    }));
-  }
-
-  const sixMonthsAgo = new Date();
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-  const sixMonthFilter = { date: { $gte: sixMonthsAgo.toISOString().split('T')[0] }, status: { $in: statuses } };
-
-  const [bStats, cStats] = await Promise.all([
-    Booking.aggregate([
-      { $match: sixMonthFilter },
-      {
-        $group: {
-          _id: { $substr: ["$date", 0, 7] },
-          revenue: { $sum: { $convert: { input: "$payment.price", to: "double", onError: 0, onNull: 0 } } }
-        }
+  const cTrend = await Collection.aggregate([
+    { $match: cMatch },
+    {
+      $group: {
+        _id: isDaily ? "$date" : { $substr: ["$date", 0, 7] }, // YYYY-MM-DD or YYYY-MM
+        revenue: { $sum: "$amount" }
       }
-    ]),
-    Collection.aggregate([
-      { $match: sixMonthFilter },
-      {
-        $group: {
-          _id: { $substr: ["$date", 0, 7] },
-          revenue: { $sum: "$amount" }
-        }
-      }
-    ])
+    }
   ]);
 
-  const combined = [...bStats, ...cStats];
-  const monthly = {};
-  combined.forEach(item => {
-    monthly[item._id] = (monthly[item._id] || 0) + item.revenue;
+  const extBookings = providedExtBookings || await fetchExternalBookings({ allPages: true, order: 'desc' });
+  const from = dateFrom || (dateFilter?.$gte);
+  const to = dateTo || (dateFilter?.$lte);
+
+  const trendMap = {};
+
+  cTrend.forEach(item => {
+    trendMap[item._id] = (trendMap[item._id] || 0) + item.revenue;
   });
 
+  extBookings
+    .filter(b => {
+      const isStatusMatch = statuses.includes(b.status);
+      let isDateMatch = true;
+      if (from && b.date < from) isDateMatch = false;
+      if (to && b.date > to) isDateMatch = false;
+      return isStatusMatch && isDateMatch;
+    })
+    .forEach(b => {
+      const key = isDaily ? b.date : b.date.substring(0, 7);
+      const val = parseFloat(b.payment?.price || 0);
+      trendMap[key] = (trendMap[key] || 0) + val;
+    });
+
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return Object.keys(monthly).sort().map(item => {
-    const [year, month] = item.split('-');
-    return {
-      month: `${monthNames[parseInt(month) - 1]}`,
-      revenue: monthly[item]
-    };
-  });
+
+  return Object.keys(trendMap)
+    .sort()
+    .map(key => {
+      if (isDaily) {
+        const [y, m, d] = key.split('-');
+        return {
+          month: `${monthNames[parseInt(m) - 1]} ${d}`, // Use 'month' label for frontend compatibility
+          revenue: trendMap[key],
+          rawDate: key
+        };
+      } else {
+        const [year, month] = key.split('-');
+        return {
+          month: `${monthNames[parseInt(month) - 1]} ${year}`,
+          revenue: trendMap[key],
+          rawDate: key
+        };
+      }
+    });
 };
 
 /**
  * Get revenue grouped by region
  */
-const getRegionWiseRevenue = async (period = 'total', dateFrom, dateTo) => {
-  const statuses = ['complete', 'completed', 'feedback done', 'Complete', 'Completed', 'Feedback Done'];
+const getRegionWiseRevenue = async (period = 'total', dateFrom, dateTo, providedExtBookings = null) => {
+  const statuses = COMPLETED_STATUSES;
   const dateFilter = getDateRange(period, dateFrom, dateTo);
-  const matchQuery = { status: { $in: statuses } };
-  if (dateFilter) matchQuery.date = dateFilter;
+  
+  const cMatch = { status: { $in: statuses } };
+  if (dateFilter) cMatch.date = dateFilter;
 
-  const [bStats, cStats] = await Promise.all([
-    Booking.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: "$address.region",
-          value: { $sum: { $convert: { input: "$payment.price", to: "double", onError: 0, onNull: 0 } } }
-        }
-      }
-    ]),
-    Collection.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: "$region",
-          value: { $sum: "$amount" }
-        }
-      }
-    ])
+  const cStats = await Collection.aggregate([
+    { $match: cMatch },
+    { $group: { _id: "$region", value: { $sum: "$amount" } } }
   ]);
 
+  const extBookings = providedExtBookings || await fetchExternalBookings({ allPages: true, order: 'desc' });
   const regions = {};
-  [...bStats, ...cStats].forEach(item => {
+  
+  const from = dateFrom || (dateFilter?.$gte);
+  const to = dateTo || (dateFilter?.$lte);
+
+  cStats.forEach(item => {
     const name = item._id || 'Other';
     regions[name] = (regions[name] || 0) + item.value;
   });
+
+  extBookings
+    .filter(b => {
+      const isStatusMatch = statuses.includes(b.status);
+      let isDateMatch = true;
+      if (from && b.date < from) isDateMatch = false;
+      if (to && b.date > to) isDateMatch = false;
+      return isStatusMatch && isDateMatch;
+    })
+    .forEach(b => {
+      const name = b.address?.region || 'Other';
+      const val = parseFloat(b.payment?.price || 0);
+      regions[name] = (regions[name] || 0) + val;
+    });
 
   return Object.keys(regions).map(name => ({
     name,
@@ -280,26 +319,9 @@ const getRegionWiseRevenue = async (period = 'total', dateFrom, dateTo) => {
  * Get list of bookings for the collections table with optional filters
  */
 const getBookingsList = async (page = 1, limit = 10, filters = {}) => {
-  const statuses = ['complete', 'completed', 'feedback done', 'Complete', 'Completed', 'Feedback Done'];
+  const statuses = COMPLETED_STATUSES;
   const bookingsCat = await Category.findOne({ name: 'Bookings' });
 
-  // Booking Query
-  const bQuery = { status: { $in: statuses } };
-  if (filters.dateFrom || filters.dateTo) {
-    bQuery.date = {};
-    if (filters.dateFrom) bQuery.date.$gte = filters.dateFrom;
-    if (filters.dateTo) bQuery.date.$lte = filters.dateTo;
-  }
-  if (filters.region) bQuery['address.region'] = filters.region;
-  if (filters.category) {
-    if (bookingsCat && filters.category === bookingsCat._id.toString()) {
-      bQuery.$or = [{ category: filters.category }, { category: { $exists: false } }, { category: null }];
-    } else {
-      bQuery.category = filters.category;
-    }
-  }
-
-  // Collection Query
   const cQuery = { status: { $in: statuses } };
   if (filters.dateFrom || filters.dateTo) {
     cQuery.date = {};
@@ -307,48 +329,32 @@ const getBookingsList = async (page = 1, limit = 10, filters = {}) => {
     if (filters.dateTo) cQuery.date.$lte = filters.dateTo;
   }
   if (filters.region) cQuery.region = filters.region;
-  if (filters.category) {
-    // If filtering by "Bookings" category, we exclude Collections unless they happen to have it (unlikely)
-    if (bookingsCat && filters.category === bookingsCat._id.toString()) {
-      cQuery._id = null; // Forces empty result if specifically asking for system bookings
-    } else {
-      cQuery.category = filters.category;
-    }
+  if (filters.category && bookingsCat && filters.category === bookingsCat._id.toString()) {
+    cQuery._id = null; // Exclude collections if searching for system bookings
   }
 
-  // Fetch both manually for now and merge
-  // In a real high-scale app, we might use a different approach
-  const [bookings, collections] = await Promise.all([
-    Booking.find(bQuery).populate('customer_id', 'name').populate('category', 'name').sort({ date: -1, createdAt: -1 }).limit(100).lean(),
-    Collection.find(cQuery).populate('category', 'name').sort({ date: -1, createdAt: -1 }).limit(100).lean()
+  const skip = (page - 1) * limit;
+
+  const [collections, total] = await Promise.all([
+    Collection.find(cQuery)
+      .populate('category', 'name')
+      .sort({ date: -1, createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Collection.countDocuments(cQuery)
   ]);
 
-  const combined = [
-    ...bookings.map(b => ({
-      ...b,
-      amount: parseFloat(b.payment?.price || 0),
-      customerName: b.customerName || b.customer_id?.name || 'Unknown',
-      category: b.category || (bookingsCat ? { _id: bookingsCat._id, name: 'Bookings' } : { name: 'Bookings' }),
-      source: 'booking'
-    })),
-    ...collections.map(c => ({
-      ...c,
-      amount: c.amount,
-      payment: { price: c.amount.toString() },
-      category: c.category || { name: 'Manual' },
-      source: 'collection'
-    }))
-  ].sort((a, b) => {
-    if (b.date !== a.date) return b.date.localeCompare(a.date);
-    return new Date(b.createdAt) - new Date(a.createdAt);
-  });
-
-  const skip = (page - 1) * limit;
-  const paginated = combined.slice(skip, skip + limit);
-  const total = bookings.length + collections.length;
+  const mappedLocal = collections.map(c => ({
+    ...c,
+    amount: c.amount,
+    payment: { price: c.amount.toString() },
+    category: c.category || { name: 'Manual' },
+    source: 'collection'
+  }));
 
   return {
-    bookings: paginated,
+    bookings: mappedLocal,
     pagination: {
       total,
       page,
@@ -359,7 +365,7 @@ const getBookingsList = async (page = 1, limit = 10, filters = {}) => {
 };
 
 /**
- * Get available filters for collections (regions and collection-type categories)
+ * Get available filters
  */
 const getCollectionFilters = async () => {
   const { City } = require('../models/city');
@@ -405,5 +411,6 @@ module.exports = {
   getRevenueTrend,
   getRegionWiseRevenue,
   getCollectionFilters,
-  createBooking
+  createBooking,
+  fetchExternalBookings
 };

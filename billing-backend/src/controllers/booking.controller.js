@@ -11,17 +11,30 @@ const getCollections = async (req, res, next) => {
     const { dateFrom, dateTo, region, category, period } = req.query;
     
     const filters = { dateFrom, dateTo, region, category };
-    const data = await bookingService.getBookingsList(page, limit, filters);
-    const filtersData = await bookingService.getCollectionFilters();
+    
+    // Optimized: Fetch all relevant external bookings ONCE and reuse
+    const extBookings = await bookingService.fetchExternalBookings({ allPages: true, order: 'desc' });
+    
+    const [data, filtersData] = await Promise.all([
+      bookingService.getBookingsList(page, limit, filters),
+      bookingService.getCollectionFilters()
+    ]);
+    
+    // Pass pre-fetched extBookings to stats helper functions
+    const [stats, trend, regions] = await Promise.all([
+      bookingService.getCollectionStats(period, dateFrom, dateTo, extBookings),
+      bookingService.getRevenueTrend(period, dateFrom, dateTo, extBookings),
+      bookingService.getRegionWiseRevenue(period, dateFrom, dateTo, extBookings)
+    ]);
     
     res.status(200).json({ 
       success: true, 
       data: {
         ...data,
         filters: filtersData,
-        stats: await bookingService.getCollectionStats(period, dateFrom, dateTo),
-        revenueTrend: await bookingService.getRevenueTrend(period, dateFrom, dateTo),
-        regionWiseRevenue: await bookingService.getRegionWiseRevenue(period, dateFrom, dateTo)
+        stats,
+        revenueTrend: trend,
+        regionWiseRevenue: regions
       } 
     });
   } catch (error) {

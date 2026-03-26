@@ -9,7 +9,6 @@ const logger = require('./config/logger');
 
 // Register Models
 require('./models/User');
-require('./models/Booking');
 require('./models/Expense');
 require('./models/Category');
 require('./models/city');

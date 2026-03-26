@@ -129,7 +129,7 @@ const getExpenseCategoryStats = async (period = 'total', dateFrom, dateTo) => {
     },
     {
       $lookup: {
-        from: "categories",
+        from: "billing-category",
         localField: "_id",
         foreignField: "_id",
         as: "categoryDetails"
