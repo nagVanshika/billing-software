@@ -9,7 +9,14 @@ let externalBookingsCache = {
   totalItems: 0,
   timestamp: 0
 };
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+let externalRegionsCache = {
+  data: [],
+  timestamp: 0
+};
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes for bookings
+const REGION_CACHE_DURATION = 60 * 60 * 1000; // 1 hour for regions
 
 const COMPLETED_STATUSES = ['complete', 'completed', 'feedback done', 'Complete', 'Completed', 'Feedback Done'];
 
@@ -48,7 +55,7 @@ const fetchExternalBookings = async (params = {}) => {
       const resp = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` },
         params: { ...params, page: pageNum, limit: 100 },
-        timeout: 15000 // Increased timeout
+        timeout: 15000 
       });
       return resp.data?.result || {};
     };
@@ -77,11 +84,50 @@ const fetchExternalBookings = async (params = {}) => {
     return bookings;
   } catch (error) {
     console.error('External API fetch failed:', error.message);
-    // Return stale cache on failure if available
     if (params.allPages && externalBookingsCache.data.length > 0) {
       return externalBookingsCache.data;
     }
     return [];
+  }
+};
+
+/**
+ * Helper to fetch regions from the external city-data API
+ */
+const fetchExternalRegions = async () => {
+  const now = Date.now();
+  
+  if (now - externalRegionsCache.timestamp < REGION_CACHE_DURATION && externalRegionsCache.data.length > 0) {
+    return externalRegionsCache.data;
+  }
+
+  try {
+    const token = getSystemToken();
+    const url = 'https://app.carmaacarcare.com/api/admin/v1/get-city-data';
+    
+    const resp = await axios.get(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 10000
+    });
+
+    const results = resp.data?.result || [];
+    const regions = results
+      .filter(item => item.status === 'active')
+      .map(item => item.region)
+      .filter((val, idx, self) => self.indexOf(val) === idx) // Unique
+      .sort();
+
+    if (regions.length > 0) {
+      externalRegionsCache = {
+        data: regions,
+        timestamp: Date.now()
+      };
+    }
+
+    return regions;
+  } catch (error) {
+    console.error('External regions fetch failed:', error.message);
+    return externalRegionsCache.data || [];
   }
 };
 
@@ -125,7 +171,6 @@ const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedEx
   const statuses = COMPLETED_STATUSES;
   const dateFilter = getDateRange(period, dateFrom, dateTo);
   
-  // Local Collections
   const cMatch = { status: { $in: statuses } };
   if (dateFilter) cMatch.date = dateFilter;
 
@@ -134,7 +179,6 @@ const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedEx
     { $group: { _id: null, total: { $sum: { $convert: { input: "$amount", to: "double", onError: 0, onNull: 0 } } } } }
   ]);
 
-  // Use provided bookings or fetch (cached)
   const extBookings = providedExtBookings || await fetchExternalBookings({ allPages: true, order: 'desc' });
   
   const from = dateFrom || (dateFilter?.$gte);
@@ -153,7 +197,6 @@ const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedEx
 
   const currentTotal = (cStats?.total || 0) + extTotal;
   
-  // Previous Period
   let previousTotal = 0;
   let prevDateFrom, prevDateTo;
 
@@ -205,10 +248,8 @@ const getRevenueTrend = async (period = 'total', dateFrom, dateTo, providedExtBo
   const statuses = COMPLETED_STATUSES;
   const dateFilter = getDateRange(period, dateFrom, dateTo);
   
-  // Optimized: Use daily grouping for smaller ranges, monthly for large ones
   const isDaily = ['today', 'weekly', 'monthly'].includes(period);
 
-  // Local Collections
   const cMatch = { status: { $in: statuses } };
   if (dateFilter) cMatch.date = dateFilter;
 
@@ -216,7 +257,7 @@ const getRevenueTrend = async (period = 'total', dateFrom, dateTo, providedExtBo
     { $match: cMatch },
     {
       $group: {
-        _id: isDaily ? "$date" : { $substr: ["$date", 0, 7] }, // YYYY-MM-DD or YYYY-MM
+        _id: isDaily ? "$date" : { $substr: ["$date", 0, 7] },
         revenue: { $sum: "$amount" }
       }
     }
@@ -254,7 +295,7 @@ const getRevenueTrend = async (period = 'total', dateFrom, dateTo, providedExtBo
       if (isDaily) {
         const [y, m, d] = key.split('-');
         return {
-          month: `${monthNames[parseInt(m) - 1]} ${d}`, // Use 'month' label for frontend compatibility
+          month: `${monthNames[parseInt(m) - 1]} ${d}`,
           revenue: trendMap[key],
           rawDate: key
         };
@@ -368,8 +409,8 @@ const getBookingsList = async (page = 1, limit = 10, filters = {}) => {
  * Get available filters
  */
 const getCollectionFilters = async () => {
-  const { City } = require('../models/city');
-  const regions = await City.distinct('region');
+  // Fetch regions from external API instead of local DB
+  const regions = await fetchExternalRegions();
 
   let bookingsCat = await Category.findOne({ name: 'Bookings' });
   if (!bookingsCat) {
@@ -412,5 +453,6 @@ module.exports = {
   getRegionWiseRevenue,
   getCollectionFilters,
   createBooking,
-  fetchExternalBookings
+  fetchExternalBookings,
+  fetchExternalRegions
 };

@@ -157,8 +157,8 @@ const getExpenseCategoryStats = async (period = 'total', dateFrom, dateTo) => {
  * Get all unique regions from City model
  */
 const getRegions = async () => {
-  const { City } = require('../models/city');
-  return City.distinct('region');
+  const bookingService = require('./booking.service');
+  return await bookingService.fetchExternalRegions();
 };
 
 const bulkUploadExpenses = async (buffer) => {
