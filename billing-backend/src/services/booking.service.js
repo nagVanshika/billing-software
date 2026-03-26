@@ -446,6 +446,50 @@ const createBooking = async (bookingData) => {
   return await collection.save();
 };
 
+/**
+ * Get full details of a booking (Local fallback for frontend)
+ */
+const getBookingDetail = async (id) => {
+  try {
+    const local = await Collection.findById(id).populate('category', 'name').lean();
+    if (local) {
+      return {
+        ...local,
+        amount: local.amount,
+        customerName: local.customerName,
+        date: local.date,
+        source: 'collection',
+        booking_type: 'manual'
+      };
+    }
+  } catch (err) {
+    // Not a valid ObjectId or not found locally
+  }
+
+  // Fallback to external check just in case it was called incorrectly
+  try {
+    const token = getSystemToken();
+    const url = 'https://app.carmaacarcare.com/api/admin/v1/get-booking-by-id';
+    const resp = await axios.get(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { bookingId: id },
+      timeout: 10000
+    });
+
+    if (resp.data?.success) {
+      const b = resp.data.result;
+      return {
+        ...b,
+        amount: parseFloat(b.payment?.price || 0),
+        source: 'external-booking',
+        booking_type: b.booking_type || 'system'
+      };
+    }
+  } catch (error) {}
+
+  return null;
+};
+
 module.exports = {
   getCollectionStats,
   getBookingsList,
@@ -453,6 +497,7 @@ module.exports = {
   getRegionWiseRevenue,
   getCollectionFilters,
   createBooking,
+  getBookingDetail,
   fetchExternalBookings,
   fetchExternalRegions
 };
