@@ -45,7 +45,7 @@ const fetchExternalBookings = async (params = {}) => {
 
   try {
     const token = getSystemToken();
-    const url = process.env.BOOKING_API_URL || 'https://app.carmaacarcare.com/api/admin/v1/get-bookings';
+    const url = process.env.BOOKING_API_URL || 'https://app-prd.carmaacarcare.com/api/admin/v1/get-bookings';
 
     if (!params.status) {
       params.status = COMPLETED_STATUSES.join(',');
@@ -469,7 +469,7 @@ const getBookingDetail = async (id) => {
   // Fallback to external check just in case it was called incorrectly
   try {
     const token = getSystemToken();
-    const url = 'https://app.carmaacarcare.com/api/admin/v1/get-booking-by-id';
+    const url = 'https://app-prd.carmaacarcare.com/api/admin/v1/get-booking-by-id';
     const resp = await axios.get(url, {
       headers: { Authorization: `Bearer ${token}` },
       params: { bookingId: id },
