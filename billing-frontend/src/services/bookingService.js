@@ -1,7 +1,7 @@
 import axios from 'axios';
 import api from './api';
 
-const EXTERNAL_URL = 'https://app.carmaacarcare.com/api/admin/v1/get-bookings';
+const EXTERNAL_URL = 'https://app-prd.carmaacarcare.com/api/admin/v1/get-bookings';
 
 const bookingService = {
   getCollections: async (page = 1, limit = 10, filters = {}) => {
@@ -67,12 +67,12 @@ const bookingService = {
       ].sort((a, b) => {
         const dateA = a.date || '';
         const dateB = b.date || '';
-        
+
         // Primary sort: Date descending (latest first)
         if (dateB !== dateA) {
           return dateB.localeCompare(dateA);
         }
-        
+
         // Secondary sort: createdAt descending (using new Date for safety)
         const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -117,7 +117,7 @@ const bookingService = {
       const systemToken = tokenResponse.token;
 
       // Fetch from external API directly
-      const response = await axios.get('https://app.carmaacarcare.com/api/admin/v1/get-booking-by-id', {
+      const response = await axios.get('https://app-prd.carmaacarcare.com/api/admin/v1/get-booking-by-id', {
         headers: { Authorization: `Bearer ${systemToken}` },
         params: { bookingId: id },
         timeout: 10000
