@@ -12,19 +12,19 @@ const getCollections = async (req, res, next) => {
     
     const filters = { dateFrom, dateTo, region, category };
     
-    // Optimized: Fetch all relevant external bookings ONCE and reuse
-    const extBookings = await bookingService.fetchExternalBookings({ allPages: true, order: 'desc' });
-    
-    const [data, filtersData] = await Promise.all([
+    // Fetch two sets: all statuses (for total count) and completed only (for revenue/trend/region)
+    const [extBookingsAll, extBookingsCompleted, data, filtersData] = await Promise.all([
+      bookingService.fetchExternalBookings({ allPages: true, order: 'desc', status: 'all' }),
+      bookingService.fetchExternalBookings({ allPages: true, order: 'desc' }),
       bookingService.getBookingsList(page, limit, filters),
       bookingService.getCollectionFilters()
     ]);
-    
-    // Pass pre-fetched extBookings to stats helper functions
+
+    // Stats uses all-statuses bookings so count is accurate; revenue/trend/region use completed-only
     const [stats, trend, regions] = await Promise.all([
-      bookingService.getCollectionStats(period, dateFrom, dateTo, extBookings),
-      bookingService.getRevenueTrend(period, dateFrom, dateTo, extBookings),
-      bookingService.getRegionWiseRevenue(period, dateFrom, dateTo, extBookings)
+      bookingService.getCollectionStats(period, dateFrom, dateTo, extBookingsAll),
+      bookingService.getRevenueTrend(period, dateFrom, dateTo, extBookingsCompleted),
+      bookingService.getRegionWiseRevenue(period, dateFrom, dateTo, extBookingsCompleted)
     ]);
     
     res.status(200).json({ 
