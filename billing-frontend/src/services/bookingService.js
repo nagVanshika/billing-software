@@ -17,7 +17,6 @@ const bookingService = {
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
         region: filters.region,
-        status: ['complete', 'completed', 'feedback done', 'Complete', 'Completed', 'Feedback Done'].join(','),
         order: 'desc'
       };
 
