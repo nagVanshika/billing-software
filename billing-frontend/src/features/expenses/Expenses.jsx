@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Search, X, Check, Upload, Paperclip, FileText, ExternalLink, Pencil, Trash2, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Plus, Search, X, Check, Upload, Paperclip, FileText, ExternalLink, Pencil, Trash2, AlertTriangle, CheckCircle, Info, LineChart, PieChart as PieChartIcon, List, TrendingUp, DollarSign } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, PieChart, Pie, Cell, Legend } from 'recharts';
 import expenseService from '../../services/expenseService';
 import { useAuth } from '../../context/AuthContext';
 import './Expenses.css';
@@ -37,12 +38,19 @@ const Expenses = () => {
 
   const [expenses, setExpenses] = useState([]);
   const [stats, setStats] = useState({ totalAmount: 0, count: 0 });
+  
+  // Analytics State
+  const [activeTab, setActiveTab] = useState('list'); // 'list' | 'analytics'
+  const [expenseTrend, setExpenseTrend] = useState([]);
+  const [categoryWiseExpense, setCategoryWiseExpense] = useState([]);
+  const [analyticsPeriod, setAnalyticsPeriod] = useState('today');
+
   const [loading, setLoading] = useState(true);
   const [availableFilters, setAvailableFilters] = useState({ categories: [], regions: [] });
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [filters, setFilters] = useState({ search: '', category: '', region: '', dateFrom: '', dateTo: '' });
+  const [filters, setFilters] = useState({ search: '', category: '', region: '', dateFrom: '', dateTo: '', period: '' });
   const [pendingFilters, setPendingFilters] = useState({ category: '', region: '', dateFrom: '', dateTo: '' });
 
   const observer = useRef();
@@ -91,6 +99,8 @@ const Expenses = () => {
           setExpenses(response.data.expenses || []);
         }
         setStats(response.data.stats || { totalAmount: 0, count: 0 });
+        setExpenseTrend(response.data.expenseTrend || []);
+        setCategoryWiseExpense(response.data.categoryWiseExpense || []);
         if (response.data.filters) setAvailableFilters(response.data.filters);
         setHasMore(response.data.pagination.page < response.data.pagination.pages);
       }
@@ -98,6 +108,23 @@ const Expenses = () => {
       console.error('Failed to fetch expenses:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+  const handlePeriodChange = (period) => {
+    setAnalyticsPeriod(period);
+    setFilters(prev => ({ ...prev, period, dateFrom: '', dateTo: '' }));
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setPage(1);
+    if (tab === 'list') {
+      setFilters(prev => ({ ...prev, period: '' }));
+    } else {
+      setFilters(prev => ({ ...prev, period: analyticsPeriod }));
     }
   };
 
@@ -316,11 +343,28 @@ const Expenses = () => {
         </div>
       )}
 
-      <div className="expenses-stats">
-        <StatCard title="Total Expense" value={`₹${stats.totalAmount.toLocaleString('en-IN')}`} />
-        <StatCard title="Expense Count" value={stats.count} />
-        <StatCard title="Last Updated" value={new Date().toLocaleDateString('en-IN')} />
+      <div className="expenses-tabs">
+        <button 
+          className={`tab-btn ${activeTab === 'list' ? 'active' : ''}`}
+          onClick={() => handleTabChange('list')}
+        >
+          <List size={18} /> Overview
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === 'analytics' ? 'active' : ''}`}
+          onClick={() => handleTabChange('analytics')}
+        >
+          <TrendingUp size={18} /> Analytics
+        </button>
       </div>
+
+      {activeTab === 'list' ? (
+        <>
+          <div className="expenses-stats">
+            <StatCard title="Total Expense" value={`₹${stats.totalAmount.toLocaleString('en-IN')}`} />
+            <StatCard title="Expense Count" value={stats.count} />
+            <StatCard title="Last Updated" value={new Date().toLocaleDateString('en-IN')} />
+          </div>
 
       {/* Search */}
       <div className="table-controls">
@@ -465,6 +509,114 @@ const Expenses = () => {
         </table>
         {loading && <div className="table-loading-overlay">Loading more expenses...</div>}
       </div>
+      </>
+      ) : (
+        <div className="analytics-dashboard">
+          <div className="analytics-controls">
+            <div className="period-selector">
+              {['today', 'weekly', 'monthly', 'total', 'custom'].map(p => (
+                <button 
+                  key={p} 
+                  className={`period-btn ${analyticsPeriod === p ? 'active' : ''}`}
+                  onClick={() => handlePeriodChange(p)}
+                >
+                  {p.charAt(0).toUpperCase() + p.slice(1)}
+                </button>
+              ))}
+            </div>
+            
+            {analyticsPeriod === 'custom' && (
+              <div className="custom-date-filters">
+                <input type="date" value={filters.dateFrom} onChange={e => setFilters({...filters, dateFrom: e.target.value})} />
+                <span> to </span>
+                <input type="date" value={filters.dateTo} onChange={e => setFilters({...filters, dateTo: e.target.value})} />
+                <button className="btn-apply-small" onClick={applyFilters}>Apply Dates</button>
+              </div>
+            )}
+          </div>
+
+          <div className="expenses-stats analytics-summary">
+            <div className="summary-card">
+              <div className="summary-icon">
+                <DollarSign size={24} />
+              </div>
+              <div className="summary-details">
+                <h3>Total Expenses ({analyticsPeriod})</h3>
+                <p className="summary-value">₹{stats.totalAmount.toLocaleString('en-IN')}</p>
+              </div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-icon pending">
+                <FileText size={24} />
+              </div>
+              <div className="summary-details">
+                <h3>Expense Count</h3>
+                <p className="summary-value">{stats.count}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="charts-grid">
+            <div className="chart-card full-width">
+              <h3>Expense Trend</h3>
+              <div className="chart-container">
+                {expenseTrend.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={expenseTrend} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                      <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#6b7280', fontSize: 12}} dy={10} />
+                      <YAxis axisLine={false} tickLine={false} tick={{fill: '#6b7280', fontSize: 12}} tickFormatter={(val) => `₹${val/1000}k`} dx={-10} />
+                      <RechartsTooltip 
+                        formatter={(value) => [`₹${value.toLocaleString('en-IN')}`, 'Expense']}
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Area type="monotone" dataKey="expense" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorExpense)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="empty-chart">No trend data available for this period.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="chart-card">
+              <h3>Category Distribution</h3>
+              <div className="chart-container">
+                {categoryWiseExpense.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={categoryWiseExpense}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        paddingAngle={5}
+                        minAngle={15}
+                        dataKey="value"
+                      >
+                        {categoryWiseExpense.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString('en-IN')}`} />
+                      <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="empty-chart">No category data available.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Expense Modal */}
       {showAddModal && (

@@ -89,6 +89,7 @@ const bookingService = {
           filters: localData.filters,
           revenueTrend: localData.revenueTrend,
           regionWiseRevenue: localData.regionWiseRevenue,
+          categoryWiseRevenue: localData.categoryWiseRevenue,
           pagination: {
             ...localData.pagination,
             pages: Math.max(extTotalPages, localTotalPages)
