@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { DollarSign, X, Plus, User, MapPin, Calendar, Clock, CreditCard, Car, Pencil, Trash2, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, PieChart, Pie, Cell, Legend } from 'recharts';
+import { DollarSign, X, Plus, User, MapPin, Calendar, Clock, CreditCard, Car, Pencil, Trash2, AlertTriangle, CheckCircle, Info, LineChart, PieChart as PieChartIcon, List, TrendingUp } from 'lucide-react';
 import bookingService from '../../services/bookingService';
 import { useAuth } from '../../context/AuthContext';
 import './Collections.css';
+
+const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
 const Collections = () => {
   const { isAdmin } = useAuth();
@@ -11,6 +14,13 @@ const Collections = () => {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+
+  // ── Analytics & Tabs State ──
+  const [activeTab, setActiveTab] = useState('list'); // 'list' | 'analytics'
+  const [revenueTrend, setRevenueTrend] = useState([]);
+  const [regionWiseRevenue, setRegionWiseRevenue] = useState([]);
+  const [categoryWiseRevenue, setCategoryWiseRevenue] = useState([]);
+  const [analyticsPeriod, setAnalyticsPeriod] = useState('today'); // 'today', 'weekly', 'monthly', 'custom'
 
   const [filters, setFilters] = useState({ dateFrom: '', dateTo: '', region: '', category: '' });
   const [appliedFilters, setAppliedFilters] = useState({ dateFrom: '', dateTo: '', region: '', category: '' });
@@ -86,7 +96,10 @@ const Collections = () => {
       if (response.success) {
         if (isInitial) {
           setBookings(response.data.bookings);
-          setStats(response.data.stats);
+          setStats(response.data.stats || { totalCollection: 0, count: 0 });
+          setRevenueTrend(response.data.revenueTrend || []);
+          setRegionWiseRevenue(response.data.regionWiseRevenue || []);
+          setCategoryWiseRevenue(response.data.categoryWiseRevenue || []);
         } else {
           setBookings(prev => [...prev, ...response.data.bookings]);
         }
@@ -113,7 +126,7 @@ const Collections = () => {
   const applyFilters = () => {
     setPage(1);
     setBookings([]);
-    setAppliedFilters({ ...filters });
+    setAppliedFilters({ ...filters, period: analyticsPeriod });
   };
 
   const clearFilters = () => {
@@ -121,8 +134,17 @@ const Collections = () => {
     setFilters(empty);
     setPage(1);
     setBookings([]);
-    setAppliedFilters(empty);
+    setAnalyticsPeriod('total');
+    setAppliedFilters({ ...empty, period: 'total' });
   };
+
+  // When analytics period changes, trigger fetch
+  useEffect(() => {
+    if (activeTab === 'analytics') {
+      setPage(1);
+      setAppliedFilters(prev => ({ ...prev, period: analyticsPeriod }));
+    }
+  }, [analyticsPeriod, activeTab]);
 
   // ── Create ──
   const handleCreate = async (e) => {
@@ -274,14 +296,34 @@ const Collections = () => {
           <h1>Money Collection</h1>
           <p>Track bookings and manage revenue flow.</p>
         </div>
-        {isAdmin && (
-          <button className="btn-add-collection" onClick={() => setIsModalOpen(true)}>
-            <Plus size={18} /> Add Collection
-          </button>
-        )}
+        <div className="header-actions">
+           {isAdmin && (
+            <button className="btn-add-collection" onClick={() => setIsModalOpen(true)}>
+              <Plus size={18} /> Add Collection
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="collections-summary">
+      {/* ── Tabs Navigation ── */}
+      <div className="collections-tabs">
+        <button 
+          className={`tab-btn ${activeTab === 'list' ? 'active' : ''}`}
+          onClick={() => setActiveTab('list')}
+        >
+          <List size={16} /> Overview
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === 'analytics' ? 'active' : ''}`}
+          onClick={() => setActiveTab('analytics')}
+        >
+          <LineChart size={16} /> Analytics
+        </button>
+      </div>
+
+      {activeTab === 'list' && (
+        <>
+          <div className="collections-summary">
         <div className="summary-card">
           <div className="summary-icon">
             <DollarSign size={24} />
@@ -397,6 +439,123 @@ const Collections = () => {
         )}
         {loading && <div className="loading-state">Loading more bookings...</div>}
       </div>
+      </>
+      )}
+
+      {activeTab === 'analytics' && (
+        <div className="analytics-dashboard">
+          <div className="analytics-controls">
+            <div className="period-selector">
+              {['today', 'weekly', 'monthly', 'total', 'custom'].map(p => (
+                <button 
+                  key={p} 
+                  className={`period-btn ${analyticsPeriod === p ? 'active' : ''}`}
+                  onClick={() => {
+                    setAnalyticsPeriod(p);
+                    if (p !== 'custom') {
+                      setFilters({ ...filters, dateFrom: '', dateTo: '' });
+                    }
+                  }}
+                >
+                  {p.charAt(0).toUpperCase() + p.slice(1)}
+                </button>
+              ))}
+            </div>
+            
+            {analyticsPeriod === 'custom' && (
+              <div className="custom-date-filters">
+                <input type="date" value={filters.dateFrom} onChange={e => setFilters({...filters, dateFrom: e.target.value})} />
+                <span> to </span>
+                <input type="date" value={filters.dateTo} onChange={e => setFilters({...filters, dateTo: e.target.value})} />
+                <button className="btn-apply-small" onClick={applyFilters}>Apply Dates</button>
+              </div>
+            )}
+          </div>
+
+          <div className="collections-summary analytics-summary">
+            <div className="summary-card">
+              <div className="summary-icon">
+                <DollarSign size={24} />
+              </div>
+              <div className="summary-details">
+                <h3>Revenue ({analyticsPeriod})</h3>
+                <p className="summary-value">₹{stats.totalCollection.toLocaleString('en-IN')}</p>
+              </div>
+            </div>
+            <div className="summary-card">
+              <div className="summary-icon pending">
+                <Car size={24} />
+              </div>
+              <div className="summary-details">
+                <h3>Total Bookings</h3>
+                <p className="summary-value">{stats.count}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="charts-grid">
+            <div className="chart-card full-width">
+              <h3>Revenue Trend</h3>
+              <div className="chart-container">
+                {revenueTrend.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={revenueTrend} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                      <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#6b7280', fontSize: 12}} dy={10} />
+                      <YAxis axisLine={false} tickLine={false} tick={{fill: '#6b7280', fontSize: 12}} tickFormatter={(val) => `₹${val/1000}k`} dx={-10} />
+                      <RechartsTooltip 
+                        formatter={(value) => [`₹${value.toLocaleString('en-IN')}`, 'Revenue']}
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Area type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="empty-chart">No trend data available for this period.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="chart-card">
+              <h3>Category Dist...</h3>
+              <div className="chart-container">
+                {categoryWiseRevenue.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={categoryWiseRevenue}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        paddingAngle={5}
+                        minAngle={15}
+                        dataKey="value"
+                      >
+                        {categoryWiseRevenue.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString('en-IN')}`} />
+                      <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="empty-chart">No category data available.</div>
+                )}
+              </div>
+            </div>
+            
+            {/* Can add another chart here if needed, like category dist */}
+          </div>
+        </div>
+      )}
 
       {/* ── Add Collection Modal ── */}
       {isModalOpen && (

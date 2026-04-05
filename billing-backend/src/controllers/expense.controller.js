@@ -16,16 +16,23 @@ const getExpenses = async (req, res, next) => {
       search:   req.query.search,
       dateFrom: req.query.dateFrom,
       dateTo:   req.query.dateTo,
+      period:   req.query.period
     };
 
-    const data = await expenseService.getExpenses(filters, page, limit);
-    const categories = await expenseService.getCategories();
-    const regions = await expenseService.getRegions();
+    const [data, categories, regions, categoryWiseExpense, expenseTrend] = await Promise.all([
+      expenseService.getExpenses(filters, page, limit),
+      expenseService.getCategories(),
+      expenseService.getRegions(),
+      expenseService.getExpenseCategoryStats(req.query.period || 'total', req.query.dateFrom, req.query.dateTo),
+      expenseService.getExpenseTrend(req.query.period || 'total', req.query.dateFrom, req.query.dateTo)
+    ]);
 
     res.status(200).json({
       success: true,
       data: {
         ...data,
+        categoryWiseExpense,
+        expenseTrend,
         filters: {
           categories,
           regions

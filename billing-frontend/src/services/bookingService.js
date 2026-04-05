@@ -17,7 +17,6 @@ const bookingService = {
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
         region: filters.region,
-        status: ['complete', 'completed', 'feedback done', 'Complete', 'Completed', 'Feedback Done'].join(','),
         order: 'desc'
       };
 
@@ -90,6 +89,7 @@ const bookingService = {
           filters: localData.filters,
           revenueTrend: localData.revenueTrend,
           regionWiseRevenue: localData.regionWiseRevenue,
+          categoryWiseRevenue: localData.categoryWiseRevenue,
           pagination: {
             ...localData.pagination,
             pages: Math.max(extTotalPages, localTotalPages)
