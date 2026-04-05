@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Search, X, Check, Upload, Paperclip, FileText, ExternalLink } from 'lucide-react';
+import { Plus, Search, X, Check, Upload, Paperclip, FileText, ExternalLink, Pencil, Trash2, AlertTriangle, CheckCircle } from 'lucide-react';
 import expenseService from '../../services/expenseService';
 import { useAuth } from '../../context/AuthContext';
 import './Expenses.css';
@@ -9,6 +9,12 @@ const PAYMENT_MODES = ['Cash', 'Card', 'UPI', 'Bank Transfer', 'Cheque'];
 const Expenses = () => {
   const { isAdmin } = useAuth();
   const [showAddModal, setShowAddModal] = useState(false);
+
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedExpense, setSelectedExpense] = useState(null);
+  
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Body scroll lock
   useEffect(() => {
@@ -23,11 +29,11 @@ const Expenses = () => {
       document.body.classList.remove('modal-open');
     };
 
-    if (showAddModal) lock();
+    if (showAddModal || isEditModalOpen) lock();
     else unlock();
 
     return unlock;
-  }, [showAddModal]);
+  }, [showAddModal, isEditModalOpen]);
 
   const [expenses, setExpenses] = useState([]);
   const [stats, setStats] = useState({ totalAmount: 0, count: 0 });
@@ -69,6 +75,10 @@ const Expenses = () => {
   const [submitting, setSubmitting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  
+  const [editFormData, setEditFormData] = useState(emptyForm);
+  const [editFormError, setEditFormError] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const fetchExpenses = async (pageNum = 1, isAppend = false) => {
     try {
@@ -157,6 +167,84 @@ const Expenses = () => {
       setFormError(err.response?.data?.message || 'Failed to save expense');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleEditClick = (expense) => {
+    setSelectedExpense(expense);
+    setEditFormData({
+      category: expense.category?._id || '',
+      reason: expense.reason || '',
+      expenseDate: new Date(expense.expenseDate).toISOString().split('T')[0],
+      paymentMode: expense.paymentMode || '',
+      paidBy: expense.paidBy || '',
+      transactionId: expense.transactionId || '',
+      amount: expense.amount || '',
+      settled: expense.settled || 'No',
+      region: expense.region || '',
+      notes: expense.notes || '',
+      bill: null // Clear file field, update only if changed
+    });
+    setEditFormError('');
+    setIsEditModalOpen(true);
+  };
+
+  const handleEditChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setEditFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    setEditFormError('');
+    setIsUpdating(true);
+    try {
+      const data = new FormData();
+      data.append('category', editFormData.category);
+      data.append('reason', editFormData.reason);
+      data.append('expenseDate', editFormData.expenseDate);
+      data.append('paymentMode', editFormData.paymentMode);
+      data.append('paidBy', editFormData.paidBy);
+      data.append('transactionId', editFormData.transactionId);
+      data.append('amount', editFormData.amount);
+      data.append('settled', editFormData.settled);
+      if (editFormData.region) data.append('region', editFormData.region);
+      if (editFormData.notes) data.append('notes', editFormData.notes);
+      if (editFormData.bill) data.append('bill', editFormData.bill);
+
+      const res = await expenseService.updateExpense(selectedExpense._id, data);
+      if (res.success) { 
+        setIsEditModalOpen(false); 
+        setSelectedExpense(null);
+        fetchExpenses(); 
+      }
+    } catch (err) {
+      setEditFormError(err.response?.data?.message || 'Failed to update expense');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleDeleteClick = (id) => {
+    setDeleteConfirmId(id);
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmId(null);
+  };
+
+  const handleDeleteConfirm = async (id) => {
+    try {
+      setIsDeleting(true);
+      const res = await expenseService.deleteExpense(id);
+      if (res.success) {
+        setDeleteConfirmId(null);
+        fetchExpenses();
+      }
+    } catch (err) {
+      console.error('Failed to delete expense:', err);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -298,15 +386,16 @@ const Expenses = () => {
               <th>Payment Mode</th>
               <th>Paid By</th>
               <th>Transaction ID</th>
-               <th>Amount</th>
+              <th>Amount</th>
               <th>Settled</th>
               <th>Bill</th>
               <th>Notes</th>
+              {isAdmin && <th className="action-col">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {expenses.length === 0 && !loading ? (
-              <tr><td colSpan="9" className="table-empty">No expenses found.</td></tr>
+              <tr><td colSpan={isAdmin ? "10" : "9"} className="table-empty">No expenses found.</td></tr>
             ) : (
               expenses.map((exp, index) => {
                 const isLast = expenses.length === index + 1;
@@ -341,6 +430,33 @@ const Expenses = () => {
                       )}
                     </td>
                     <td className="expense-notes" data-label="Notes">{exp.notes || '—'}</td>
+                    {isAdmin && (
+                      <td className="action-cell" data-label="Actions">
+                        {deleteConfirmId === exp._id ? (
+                          <div className="delete-confirm-inline" onClick={e => e.stopPropagation()}>
+                            <AlertTriangle size={14} className="warn-icon" />
+                            <span>Delete?</span>
+                            <button
+                              className="btn-confirm-delete"
+                              onClick={() => handleDeleteConfirm(exp._id)}
+                              disabled={isDeleting}
+                            >
+                              {isDeleting ? '...' : 'Yes'}
+                            </button>
+                            <button className="btn-cancel-delete" onClick={handleDeleteCancel}>No</button>
+                          </div>
+                        ) : (
+                          <div className="detail-action-btns">
+                            <button className="btn-icon-edit" onClick={() => handleEditClick(exp)} title="Edit">
+                              <Pencil size={15} />
+                            </button>
+                            <button className="btn-icon-delete" onClick={() => handleDeleteClick(exp._id)} title="Delete">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })
@@ -462,6 +578,130 @@ const Expenses = () => {
                 <button type="button" className="btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
                 <button type="submit" className="btn-primary" disabled={submitting}>
                   {submitting ? 'Saving...' : 'Save Expense'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Expense Modal */}
+      {isEditModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content modal-wide">
+            <div className="modal-header">
+              <h2>Edit Expense</h2>
+              <button className="btn-close" onClick={() => setIsEditModalOpen(false)}><X size={20} /></button>
+            </div>
+            <form className="expense-form" onSubmit={handleEditSubmit}>
+              <div className="form-grid">
+
+                <div className="form-group">
+                  <label>Category *</label>
+                  <select name="category" value={editFormData.category} onChange={handleEditChange} required>
+                    <option value="">Select Category</option>
+                    {availableFilters.categories.map(cat => (
+                      <option key={cat._id} value={cat._id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Expense Reason *</label>
+                  <input type="text" name="reason" placeholder="e.g. Office Supplies"
+                    value={editFormData.reason} onChange={handleEditChange} required />
+                </div>
+
+                <div className="form-group">
+                  <label>Payment Date *</label>
+                  <input type="date" name="expenseDate"
+                    value={editFormData.expenseDate} onChange={handleEditChange} required />
+                </div>
+
+                <div className="form-group">
+                  <label>Payment Mode *</label>
+                  <input type="text" name="paymentMode" list="payment-modes" placeholder="e.g. UPI, Cash"
+                    value={editFormData.paymentMode} onChange={handleEditChange} required />
+                  <datalist id="payment-modes">
+                    {PAYMENT_MODES.map(m => <option key={m} value={m} />)}
+                  </datalist>
+                </div>
+
+                <div className="form-group">
+                  <label>Paid By *</label>
+                  <input type="text" name="paidBy" placeholder="e.g. John Doe"
+                    value={editFormData.paidBy} onChange={handleEditChange} required />
+                </div>
+
+                <div className="form-group">
+                  <label>Transaction ID</label>
+                  <input type="text" name="transactionId" placeholder="Optional"
+                    value={editFormData.transactionId} onChange={handleEditChange} />
+                </div>
+
+                <div className="form-group">
+                  <label>Amount (₹) *</label>
+                  <input type="number" name="amount" placeholder="0.00" min="0" step="0.01"
+                    value={editFormData.amount} onChange={handleEditChange} required />
+                </div>
+
+                <div className="form-group">
+                  <label>Settled Status</label>
+                  <input type="text" name="settled" placeholder="e.g. Yes, No Need, Pending"
+                    value={editFormData.settled} onChange={handleEditChange} />
+                </div>
+
+                <div className="form-group">
+                  <label>Region</label>
+                  <select name="region" value={editFormData.region} onChange={handleEditChange}>
+                    <option value="">Select Region</option>
+                    {availableFilters.regions.map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group full-width">
+                  <label>Notes</label>
+                  <textarea name="notes" placeholder="Additional details..." rows="3"
+                    value={editFormData.notes || ''} onChange={handleEditChange}
+                    style={{ padding: '11px 12px', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '0.95rem', outline: 'none', background: 'white' }} />
+                </div>
+
+                <div className="form-group full-width" style={{ position: 'relative' }}>
+                  <label>Re-attach / Update Bill</label>
+                  <div className="file-upload-wrapper">
+                    <input 
+                      type="file" 
+                      id="edit-bill-upload"
+                      accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, bill: e.target.files[0] }))}
+                      className="hidden-input"
+                    />
+                    <label htmlFor="edit-bill-upload" className="file-upload-label">
+                      <Paperclip size={18} />
+                      {editFormData.bill ? (
+                        <span className="file-name">{editFormData.bill.name}</span>
+                      ) : (
+                        <span className="upload-placeholder">Choose a file to replace existing</span>
+                      )}
+                    </label>
+                  </div>
+                  {selectedExpense?.attachment && !editFormData.bill && (
+                    <span style={{ fontSize: '0.75rem', color: '#10b981', display: 'flex', gap: '4px', alignItems: 'center', marginTop: '6px' }}>
+                      <CheckCircle size={12} /> Existing attachment will jump on edit
+                    </span>
+                  )}
+                </div>
+
+              </div>
+
+              {editFormError && <p className="form-error">{editFormError}</p>}
+
+              <div className="form-actions">
+                <button type="button" className="btn-secondary" onClick={() => setIsEditModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn-primary" disabled={isUpdating}>
+                  {isUpdating ? 'Updating...' : 'Save Changes'}
                 </button>
               </div>
             </form>

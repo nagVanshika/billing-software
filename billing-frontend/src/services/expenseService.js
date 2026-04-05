@@ -14,6 +14,18 @@ const expenseService = {
     });
   },
 
+  updateExpense: async (id, expenseData) => {
+    return api.put(`/expenses/${id}`, expenseData, {
+      headers: {
+        'Content-Type': expenseData instanceof FormData ? 'multipart/form-data' : 'application/json'
+      }
+    });
+  },
+
+  deleteExpense: async (id) => {
+    return api.delete(`/expenses/${id}`);
+  },
+
   getExpenseStats: async (params = {}) => {
     // params can include { period, dateFrom, dateTo }
     return api.get('/expenses/stats', { params });

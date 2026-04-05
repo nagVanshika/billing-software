@@ -53,6 +53,15 @@ const expenseSchema = new mongoose.Schema({
     attachment: {
         type: String,
         trim: true
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    deletedAt: {
+        type: Date,
+        default: null
     }
 }, {
     timestamps: true
