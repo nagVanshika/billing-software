@@ -21,10 +21,11 @@ const getCollections = async (req, res, next) => {
     ]);
 
     // Stats uses all-statuses bookings so count is accurate; revenue/trend/region use completed-only
-    const [stats, trend, regions] = await Promise.all([
+    const [stats, trend, regions, categories] = await Promise.all([
       bookingService.getCollectionStats(period, dateFrom, dateTo, extBookingsAll),
       bookingService.getRevenueTrend(period, dateFrom, dateTo, extBookingsCompleted),
-      bookingService.getRegionWiseRevenue(period, dateFrom, dateTo, extBookingsCompleted)
+      bookingService.getRegionWiseRevenue(period, dateFrom, dateTo, extBookingsCompleted),
+      bookingService.getCategoryWiseRevenue(period, dateFrom, dateTo, extBookingsCompleted)
     ]);
     
     res.status(200).json({ 
@@ -34,7 +35,8 @@ const getCollections = async (req, res, next) => {
         filters: filtersData,
         stats,
         revenueTrend: trend,
-        regionWiseRevenue: regions
+        regionWiseRevenue: regions,
+        categoryWiseRevenue: categories
       } 
     });
   } catch (error) {

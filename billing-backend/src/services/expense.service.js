@@ -1,5 +1,40 @@
 const Expense = require('../models/billing-expense');
-require('../models/billing-category'); // Ensure Category model is registered
+// Ensure Category model is registered
+require('../models/billing-category');
+
+/**
+ * Helper to get date range based on period
+ */
+const getDateRange = (period, dateFrom, dateTo) => {
+  if (period === 'custom' && (dateFrom || dateTo)) {
+    const filter = {};
+    if (dateFrom) filter.$gte = new Date(dateFrom);
+    if (dateTo) filter.$lte = new Date(dateTo + 'T23:59:59.999Z');
+    return filter;
+  }
+
+  const now = new Date();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  switch (period) {
+    case 'today':
+      return { $gte: today };
+    case 'weekly': {
+      const weekAgo = new Date();
+      weekAgo.setDate(now.getDate() - 7);
+      return { $gte: weekAgo };
+    }
+    case 'monthly': {
+      const monthAgo = new Date();
+      monthAgo.setDate(now.getDate() - 30);
+      return { $gte: monthAgo };
+    }
+    case 'total':
+    default:
+      return null;
+  }
+};
 
 /**
  * Get all expenses with filters and pagination
@@ -14,10 +49,10 @@ const getExpenses = async (filters = {}, page = 1, limit = 10) => {
   if (filters.search) {
     query.reason = { $regex: filters.search, $options: 'i' };
   }
-  if (filters.dateFrom || filters.dateTo) {
-    query.expenseDate = {};
-    if (filters.dateFrom) query.expenseDate.$gte = new Date(filters.dateFrom);
-    if (filters.dateTo)   query.expenseDate.$lte = new Date(filters.dateTo + 'T23:59:59.999Z');
+  
+  const dateFilter = getDateRange(filters.period, filters.dateFrom, filters.dateTo);
+  if (dateFilter) {
+    query.expenseDate = dateFilter;
   }
 
   const expenses = await Expense.find(query)
@@ -73,37 +108,49 @@ const getCategories = async () => {
 };
 
 /**
- * Helper to get date range based on period
+ * Get expense trend for charts
  */
-const getDateRange = (period, dateFrom, dateTo) => {
-  if (period === 'custom' && (dateFrom || dateTo)) {
-    const filter = {};
-    if (dateFrom) filter.$gte = new Date(dateFrom);
-    if (dateTo) filter.$lte = new Date(dateTo + 'T23:59:59.999Z');
-    return filter;
-  }
-
-  const now = new Date();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+const getExpenseTrend = async (period = 'total', dateFrom, dateTo) => {
+  const dateFilter = getDateRange(period, dateFrom, dateTo);
+  const matchQuery = { isDeleted: { $ne: true } };
   
-  switch (period) {
-    case 'today':
-      return { $gte: today };
-    case 'weekly': {
-      const weekAgo = new Date();
-      weekAgo.setDate(now.getDate() - 7);
-      return { $gte: weekAgo };
+  if (dateFilter) matchQuery.expenseDate = dateFilter;
+
+  const isDaily = ['today', 'weekly', 'monthly'].includes(period);
+
+  const stats = await Expense.aggregate([
+    { $match: matchQuery },
+    {
+      $group: {
+        _id: isDaily 
+               ? { $dateToString: { format: "%Y-%m-%d", date: "$expenseDate" } }
+               : { $dateToString: { format: "%Y-%m", date: "$expenseDate" } },
+        expense: { $sum: "$amount" }
+      }
     }
-    case 'monthly': {
-      const monthAgo = new Date();
-      monthAgo.setDate(now.getDate() - 30);
-      return { $gte: monthAgo };
-    }
-    case 'total':
-    default:
-      return null;
-  }
+  ]);
+
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  return stats
+    .sort((a, b) => a._id.localeCompare(b._id))
+    .map(item => {
+      if (isDaily) {
+        const [y, m, d] = item._id.split('-');
+        return {
+          month: `${monthNames[parseInt(m) - 1]} ${d}`,
+          expense: item.expense,
+          rawDate: item._id
+        };
+      } else {
+        const [year, month] = item._id.split('-');
+        return {
+          month: `${monthNames[parseInt(month) - 1]} ${year}`,
+          expense: item.expense,
+          rawDate: item._id
+        };
+      }
+    });
 };
 
 /**
@@ -333,6 +380,7 @@ module.exports = {
   createExpense,
   getCategories,
   getRegions,
+  getExpenseTrend,
   getExpenseCategoryStats,
   updateExpense,
   softDeleteExpense,

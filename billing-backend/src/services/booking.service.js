@@ -349,6 +349,53 @@ const getRegionWiseRevenue = async (period = 'total', dateFrom, dateTo, provided
 };
 
 /**
+ * Get revenue grouped by category
+ */
+const getCategoryWiseRevenue = async (period = 'total', dateFrom, dateTo, providedExtBookings = null) => {
+  const statuses = COMPLETED_STATUSES;
+  const dateFilter = getDateRange(period, dateFrom, dateTo);
+
+  const cMatch = { status: { $in: statuses }, isDeleted: { $ne: true } };
+  if (dateFilter) cMatch.date = dateFilter;
+
+  // Use find and populate since categories are an ObjectId reference
+  const manualCollections = await Collection.find(cMatch).populate('category', 'name').lean();
+
+  const categoriesMap = {};
+
+  manualCollections.forEach(item => {
+    const name = item.category?.name || 'Manual';
+    categoriesMap[name] = (categoriesMap[name] || 0) + item.amount;
+  });
+
+  const extBookings = providedExtBookings || await fetchExternalBookings({ allPages: true, order: 'desc' });
+  
+  const from = dateFrom || (dateFilter?.$gte);
+  const to = dateTo || (dateFilter?.$lte);
+
+  extBookings
+    .filter(b => {
+      const isStatusMatch = statuses.includes(b.status.toLowerCase());
+      let isDateMatch = true;
+      if (from && b.date < from) isDateMatch = false;
+      if (to && b.date > to) isDateMatch = false;
+      return isStatusMatch && isDateMatch;
+    })
+    .forEach(b => {
+      // Use Booking category if available, otherwise default to "Bookings"
+      const name = b.category?.name || 'Bookings';
+      const val = parseFloat(b.payment?.price || 0);
+      categoriesMap[name] = (categoriesMap[name] || 0) + val;
+    });
+
+  return Object.keys(categoriesMap).map(name => ({
+    name,
+    value: categoriesMap[name]
+  })).sort((a, b) => b.value - a.value);
+};
+
+
+/**
  * Get list of bookings for the collections table with optional filters
  */
 const getBookingsList = async (page = 1, limit = 10, filters = {}) => {
@@ -548,6 +595,7 @@ module.exports = {
   getBookingsList,
   getRevenueTrend,
   getRegionWiseRevenue,
+  getCategoryWiseRevenue,
   getCollectionFilters,
   createBooking,
   updateBooking,
