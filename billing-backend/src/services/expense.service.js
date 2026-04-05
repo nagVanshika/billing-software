@@ -7,7 +7,7 @@ require('../models/billing-category'); // Ensure Category model is registered
 const getExpenses = async (filters = {}, page = 1, limit = 10) => {
   const skip = (page - 1) * limit;
   
-  const query = {};
+  const query = { isDeleted: { $ne: true } };
   if (filters.category) query.category = filters.category;
   if (filters.region)   query.region   = filters.region;
   if (filters.status)   query.status   = filters.status;
@@ -111,7 +111,7 @@ const getDateRange = (period, dateFrom, dateTo) => {
  */
 const getExpenseCategoryStats = async (period = 'total', dateFrom, dateTo) => {
   const dateFilter = getDateRange(period, dateFrom, dateTo);
-  const matchQuery = {};
+  const matchQuery = { isDeleted: { $ne: true } };
   
   if (dateFilter) {
     matchQuery.expenseDate = dateFilter;
@@ -159,6 +159,52 @@ const getExpenseCategoryStats = async (period = 'total', dateFrom, dateTo) => {
 const getRegions = async () => {
   const bookingService = require('./booking.service');
   return await bookingService.fetchExternalRegions();
+};
+
+/**
+ * Update an existing expense
+ */
+const updateExpense = async (id, updateData) => {
+  const expense = await Expense.findById(id);
+
+  if (!expense) {
+    const err = new Error('Expense not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  // Fields allowed to be updated
+  const allowedFields = [
+    'category', 'reason', 'expenseDate', 'paymentMode', 
+    'paidBy', 'transactionId', 'amount', 'settled', 
+    'region', 'notes', 'attachment'
+  ];
+
+  allowedFields.forEach(field => {
+    if (updateData[field] !== undefined) {
+      expense[field] = updateData[field];
+    }
+  });
+
+  return await expense.save();
+};
+
+/**
+ * Soft delete an expense
+ */
+const softDeleteExpense = async (id) => {
+  const expense = await Expense.findById(id);
+
+  if (!expense) {
+    const err = new Error('Expense not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  expense.isDeleted = true;
+  expense.deletedAt = new Date();
+  
+  return await expense.save();
 };
 
 const bulkUploadExpenses = async (buffer) => {
@@ -288,5 +334,7 @@ module.exports = {
   getCategories,
   getRegions,
   getExpenseCategoryStats,
+  updateExpense,
+  softDeleteExpense,
   bulkUploadExpenses
 };
