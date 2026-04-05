@@ -91,8 +91,53 @@ const getCollectionDetail = async (req, res, next) => {
   }
 };
 
+const updateCollection = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const updated = await bookingService.updateBooking(id, req.body);
+
+    res.status(200).json({
+      success: true,
+      message: 'Collection updated successfully',
+      data: updated
+    });
+  } catch (error) {
+    logger.error('Error in updateCollection controller:', error);
+    if (error.statusCode === 404) {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    if (error.statusCode === 403) {
+      return res.status(403).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+};
+
+const deleteCollection = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await bookingService.softDeleteBooking(id);
+
+    res.status(200).json({
+      success: true,
+      message: 'Collection deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Error in deleteCollection controller:', error);
+    if (error.statusCode === 404) {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    if (error.statusCode === 403) {
+      return res.status(403).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+};
+
 module.exports = {
   getCollections,
   createCollection,
-  getCollectionDetail
+  getCollectionDetail,
+  updateCollection,
+  deleteCollection
 };

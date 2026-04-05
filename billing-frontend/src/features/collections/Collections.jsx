@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { DollarSign, X, Plus, User, MapPin, Calendar, Clock, CreditCard, Car, ChevronRight, CheckCircle, Info } from 'lucide-react';
+import { DollarSign, X, Plus, User, MapPin, Calendar, Clock, CreditCard, Car, Pencil, Trash2, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import bookingService from '../../services/bookingService';
-import expenseService from '../../services/expenseService';
 import { useAuth } from '../../context/AuthContext';
 import './Collections.css';
 
@@ -17,7 +16,7 @@ const Collections = () => {
   const [appliedFilters, setAppliedFilters] = useState({ dateFrom: '', dateTo: '', region: '', category: '' });
   const [availableFilters, setAvailableFilters] = useState({ categories: [], regions: [] });
 
-  // Modal State
+  // ── Add Modal ──
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newCollection, setNewCollection] = useState({
     customerName: '',
@@ -27,13 +26,29 @@ const Collections = () => {
     region: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // Detail Modal State
+
+  // ── Detail Modal ──
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
-  
-  // Body scroll lock
+
+  // ── Edit Modal ──
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editCollection, setEditCollection] = useState({
+    customerName: '',
+    date: '',
+    price: '',
+    category: '',
+    region: '',
+    notes: ''
+  });
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // ── Delete confirm ──
+  const [deleteConfirmActive, setDeleteConfirmActive] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // ── Body scroll lock ──
   useEffect(() => {
     const lock = () => {
       document.body.style.overflow = 'hidden';
@@ -46,11 +61,11 @@ const Collections = () => {
       document.body.classList.remove('modal-open');
     };
 
-    if (isModalOpen || isDetailModalOpen) lock();
+    if (isModalOpen || isDetailModalOpen || isEditModalOpen) lock();
     else unlock();
- 
+
     return unlock;
-  }, [isModalOpen, isDetailModalOpen]);
+  }, [isModalOpen, isDetailModalOpen, isEditModalOpen]);
 
   const observer = useRef();
   const lastBookingElementRef = useCallback(node => {
@@ -85,7 +100,6 @@ const Collections = () => {
     }
   };
 
-
   // Initial load
   useEffect(() => {
     fetchData(1, true, appliedFilters);
@@ -110,6 +124,7 @@ const Collections = () => {
     setAppliedFilters(empty);
   };
 
+  // ── Create ──
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!newCollection.customerName || !newCollection.price) return;
@@ -144,11 +159,13 @@ const Collections = () => {
       setIsSubmitting(false);
     }
   };
- 
+
+  // ── Row click → Detail modal ──
   const handleRowClick = async (booking) => {
     try {
       setDetailLoading(true);
       setIsDetailModalOpen(true);
+      setDeleteConfirmActive(false);
       const response = await bookingService.getBookingDetail(booking._id, booking.source);
       if (response.success) {
         setSelectedBooking(response.data);
@@ -159,13 +176,96 @@ const Collections = () => {
       setDetailLoading(false);
     }
   };
- 
+
   const closeDetailModal = () => {
     setIsDetailModalOpen(false);
     setSelectedBooking(null);
+    setDeleteConfirmActive(false);
+  };
+
+  // ── Open edit modal, pre-fill from selectedBooking ──
+  const openEditModal = () => {
+    if (!selectedBooking) return;
+    setEditCollection({
+      customerName: selectedBooking.customerName || '',
+      date: selectedBooking.date || new Date().toISOString().split('T')[0],
+      price: selectedBooking.amount?.toString() || selectedBooking.payment?.price?.toString() || '',
+      category: selectedBooking.category?._id || '',
+      region: selectedBooking.address?.region || selectedBooking.region || '',
+      notes: selectedBooking.notes || ''
+    });
+    setIsDetailModalOpen(false);
+    setIsEditModalOpen(true);
+  };
+
+  // ── Update (Edit submit) ──
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    if (!selectedBooking?._id || !editCollection.customerName || !editCollection.price) return;
+
+    try {
+      setIsUpdating(true);
+      const payload = {
+        customerName: editCollection.customerName,
+        date: editCollection.date,
+        payment: { price: editCollection.price },
+        category: editCollection.category || null,
+        region: editCollection.region || 'Unknown',
+        notes: editCollection.notes || ''
+      };
+
+      const response = await bookingService.updateCollection(selectedBooking._id, payload);
+      if (response.success) {
+        setIsEditModalOpen(false);
+        setSelectedBooking(null);
+        setPage(1);
+        setBookings([]);
+        fetchData(1, true);
+      }
+    } catch (error) {
+      console.error('Failed to update collection:', error);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalOpen(false);
+    // Restore detail modal for the same booking
+    if (selectedBooking) setIsDetailModalOpen(true);
+  };
+
+  // ── Soft delete ──
+  const handleDeleteClick = () => {
+    setDeleteConfirmActive(true);
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmActive(false);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedBooking?._id) return;
+    try {
+      setIsDeleting(true);
+      const response = await bookingService.deleteCollection(selectedBooking._id);
+      if (response.success) {
+        closeDetailModal();
+        setPage(1);
+        setBookings([]);
+        fetchData(1, true);
+      }
+    } catch (error) {
+      console.error('Failed to delete collection:', error);
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirmActive(false);
+    }
   };
 
   const hasActiveFilters = appliedFilters.dateFrom || appliedFilters.dateTo || appliedFilters.region || appliedFilters.category;
+
+  const isManualBooking = (booking) => booking?.booking_type === 'manual';
 
   return (
     <div className="collections-container">
@@ -273,8 +373,8 @@ const Collections = () => {
               {bookings.map((booking, index) => {
                 const isLastElement = bookings.length === index + 1;
                 return (
-                  <tr 
-                    key={booking._id} 
+                  <tr
+                    key={booking._id}
                     ref={isLastElement ? lastBookingElementRef : null}
                     onClick={() => handleRowClick(booking)}
                     className="booking-row"
@@ -308,7 +408,7 @@ const Collections = () => {
                 <X size={20} />
               </button>
             </div>
-            
+
             <form onSubmit={handleCreate}>
               <div className="form-grid">
                 <div className="form-group">
@@ -370,19 +470,121 @@ const Collections = () => {
               </div>
 
               <div className="modal-footer">
-                <button 
-                  type="button" 
-                  className="btn-cancel" 
+                <button
+                  type="button"
+                  className="btn-cancel"
                   onClick={() => setIsModalOpen(false)}
                 >
                   Cancel
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="btn-submit"
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? 'Saving...' : 'Save Collection'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Collection Modal ── */}
+      {isEditModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h2>Edit Collection</h2>
+              <button className="btn-close" onClick={closeEditModal}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdate}>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>Customer Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter customer name"
+                    value={editCollection.customerName}
+                    onChange={e => setEditCollection(prev => ({ ...prev, customerName: e.target.value }))}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Amount (₹) *</label>
+                  <input
+                    type="number"
+                    required
+                    placeholder="0.00"
+                    value={editCollection.price}
+                    onChange={e => setEditCollection(prev => ({ ...prev, price: e.target.value }))}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Date</label>
+                  <input
+                    type="date"
+                    value={editCollection.date}
+                    onChange={e => setEditCollection(prev => ({ ...prev, date: e.target.value }))}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Category</label>
+                  <select
+                    value={editCollection.category}
+                    onChange={e => setEditCollection(prev => ({ ...prev, category: e.target.value }))}
+                  >
+                    <option value="">Select Category</option>
+                    {availableFilters.categories.map(cat => (
+                      <option key={cat._id} value={cat._id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Region</label>
+                  <select
+                    value={editCollection.region}
+                    onChange={e => setEditCollection(prev => ({ ...prev, region: e.target.value }))}
+                  >
+                    <option value="">Select Region</option>
+                    {availableFilters.regions.map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group full-width">
+                  <label>Notes</label>
+                  <input
+                    type="text"
+                    placeholder="Optional notes"
+                    value={editCollection.notes}
+                    onChange={e => setEditCollection(prev => ({ ...prev, notes: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn-cancel"
+                  onClick={closeEditModal}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-submit"
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>
@@ -563,7 +765,45 @@ const Collections = () => {
             </div>
 
             <div className="modal-footer-premium">
-              <button className="btn-secondary-premium" onClick={closeDetailModal}>Close Review</button>
+              {/* Delete confirm inline */}
+              {deleteConfirmActive ? (
+                <div className="delete-confirm-inline">
+                  <AlertTriangle size={16} className="warn-icon" />
+                  <span>Permanently remove this entry?</span>
+                  <button
+                    className="btn-confirm-delete"
+                    onClick={handleDeleteConfirm}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? 'Deleting...' : 'Yes, Delete'}
+                  </button>
+                  <button className="btn-cancel-delete" onClick={handleDeleteCancel}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button className="btn-secondary-premium" onClick={closeDetailModal}>Close Review</button>
+                  {isAdmin && selectedBooking && isManualBooking(selectedBooking) && (
+                    <div className="detail-action-btns">
+                      <button
+                        className="btn-edit-premium"
+                        onClick={openEditModal}
+                        title="Edit this collection"
+                      >
+                        <Pencil size={15} /> Edit
+                      </button>
+                      <button
+                        className="btn-delete-premium"
+                        onClick={handleDeleteClick}
+                        title="Delete this collection"
+                      >
+                        <Trash2 size={15} /> Delete
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

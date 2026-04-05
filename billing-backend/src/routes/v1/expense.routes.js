@@ -16,6 +16,8 @@ router.get('/', expenseController.getExpenses);
 router.post('/', restrictTo('super_admin'), billUpload.single('bill'), expenseController.createExpense);
 router.post('/import', restrictTo('super_admin'), upload.single('file'), expenseController.bulkUpload);
 
-module.exports = router;
+router.put('/:id', restrictTo('super_admin'), billUpload.single('bill'), expenseController.updateExpense);
+router.delete('/:id', restrictTo('super_admin'), expenseController.deleteExpense);
 
+module.exports = router;
 

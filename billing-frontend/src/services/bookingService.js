@@ -105,6 +105,14 @@ const bookingService = {
     return api.post('/bookings/collections', collectionData);
   },
 
+  updateCollection: async (id, collectionData) => {
+    return api.put(`/bookings/collections/${id}`, collectionData);
+  },
+
+  deleteCollection: async (id) => {
+    return api.delete(`/bookings/collections/${id}`);
+  },
+
   getBookingDetail: async (id, source = 'external-booking') => {
     try {
       if (source === 'collection') {

@@ -177,7 +177,7 @@ const getCollectionStats = async (period = 'total', dateFrom, dateTo, providedEx
   const dateFilter = getDateRange(period, dateFrom, dateTo);
 
   // Revenue calculation from local collections
-  const cMatch = { status: { $in: statuses } };
+  const cMatch = { status: { $in: statuses }, isDeleted: { $ne: true } };
   if (dateFilter) cMatch.date = dateFilter;
 
   const [cStats] = await Collection.aggregate([
@@ -242,7 +242,7 @@ const getRevenueTrend = async (period = 'total', dateFrom, dateTo, providedExtBo
 
   const isDaily = ['today', 'weekly', 'monthly'].includes(period);
 
-  const cMatch = { status: { $in: statuses } };
+  const cMatch = { status: { $in: statuses }, isDeleted: { $ne: true } };
   if (dateFilter) cMatch.date = dateFilter;
 
   const cTrend = await Collection.aggregate([
@@ -309,7 +309,7 @@ const getRegionWiseRevenue = async (period = 'total', dateFrom, dateTo, provided
   const statuses = COMPLETED_STATUSES;
   const dateFilter = getDateRange(period, dateFrom, dateTo);
 
-  const cMatch = { status: { $in: statuses } };
+  const cMatch = { status: { $in: statuses }, isDeleted: { $ne: true } };
   if (dateFilter) cMatch.date = dateFilter;
 
   const cStats = await Collection.aggregate([
@@ -355,7 +355,7 @@ const getBookingsList = async (page = 1, limit = 10, filters = {}) => {
   const statuses = COMPLETED_STATUSES;
   const bookingsCat = await Category.findOne({ name: 'Bookings' });
 
-  const cQuery = { status: { $in: statuses } };
+  const cQuery = { status: { $in: statuses }, isDeleted: { $ne: true } };
   if (filters.dateFrom || filters.dateTo) {
     cQuery.date = {};
     if (filters.dateFrom) cQuery.date.$gte = filters.dateFrom;
@@ -439,6 +439,67 @@ const createBooking = async (bookingData) => {
 };
 
 /**
+ * Update a manual collection entry
+ */
+const updateBooking = async (id, updateData) => {
+  const collection = await Collection.findById(id);
+
+  if (!collection) {
+    const err = new Error('Collection not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (collection.booking_type !== 'manual') {
+    const err = new Error('Only manual collections can be edited');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const allowedFields = ['customerName', 'date', 'amount', 'category', 'region', 'notes', 'status'];
+  allowedFields.forEach(field => {
+    if (updateData[field] !== undefined) {
+      // Support payment.price as amount alias from frontend
+      if (field === 'amount' && updateData.payment?.price !== undefined) {
+        collection.amount = parseFloat(updateData.payment.price);
+      } else {
+        collection[field] = updateData[field];
+      }
+    }
+  });
+
+  // Also handle payment.price → amount mapping
+  if (updateData.payment?.price !== undefined && updateData.amount === undefined) {
+    collection.amount = parseFloat(updateData.payment.price);
+  }
+
+  return await collection.save();
+};
+
+/**
+ * Soft delete a manual collection entry
+ */
+const softDeleteBooking = async (id) => {
+  const collection = await Collection.findById(id);
+
+  if (!collection) {
+    const err = new Error('Collection not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (collection.booking_type !== 'manual') {
+    const err = new Error('Only manual collections can be deleted');
+    err.statusCode = 403;
+    throw err;
+  }
+
+  collection.isDeleted = true;
+  collection.deletedAt = new Date();
+  return await collection.save();
+};
+
+/**
  * Get full details of a booking (Local fallback for frontend)
  */
 const getBookingDetail = async (id) => {
@@ -489,6 +550,8 @@ module.exports = {
   getRegionWiseRevenue,
   getCollectionFilters,
   createBooking,
+  updateBooking,
+  softDeleteBooking,
   getBookingDetail,
   fetchExternalBookings,
   fetchExternalRegions

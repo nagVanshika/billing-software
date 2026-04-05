@@ -135,10 +135,60 @@ const bulkUpload = async (req, res, next) => {
   }
 };
 
+/**
+ * Update an existing expense
+ */
+const updateExpense = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const expenseData = { ...req.body };
+    
+    // If file is uploaded, add its S3 location to expenseData
+    if (req.file) {
+      expenseData.attachment = req.file.location;
+    }
+
+    const updated = await expenseService.updateExpense(id, expenseData);
+
+    res.status(200).json({
+      success: true,
+      message: 'Expense updated successfully',
+      data: updated
+    });
+  } catch (error) {
+    if (error.statusCode === 404 || error.statusCode === 403) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+};
+
+/**
+ * Soft delete an expense
+ */
+const deleteExpense = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await expenseService.softDeleteExpense(id);
+
+    res.status(200).json({
+      success: true,
+      message: 'Expense deleted successfully'
+    });
+  } catch (error) {
+    if (error.statusCode === 404 || error.statusCode === 403) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+};
+
 module.exports = {
   getExpenses,
   createExpense,
   getExpenseStats,
   getRegions,
-  bulkUpload
+  bulkUpload,
+  updateExpense,
+  deleteExpense
 };
